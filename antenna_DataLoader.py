@@ -1,35 +1,39 @@
 import scipy.io as sio
-from os import listdir
-from os.path import isfile, join
 import numpy as np
 
-def split_dataset(dataset_path= r'C:\Users\moshey\PycharmProjects\etof_folder_git\AntennaDesign_data', train_val_test_split = [0.6,0.2, 0.2]):
-    folders = listdir(dataset_path)
-    dataset_path_list = []
+import utils
+from utils import standard_scaler, create_dataset , split_dataset
+from models import baseline_regressor
+import torch
+import trainer
+if __name__ == "__main__":
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    train_paths,val_paths,test_paths = split_dataset()
+    create_dataset(train_paths,val_paths,test_paths)
+    data = np.load('data.npz')
+    train_params,train_gamma = data['parameters_train'],data['gamma_train']
+    #utils.display_gamma(train_gamma[100])
+    val_params,val_gamma = data['parameters_val'],data['gamma_val']
+    test_params,test_gamma = data['parameters_test'],data['gamma_test']
+    scaler = standard_scaler()
+    scaler.fit(train_params)
+    train_params_scaled = torch.tensor(scaler.forward(train_params)).to(device)
+    val_params_scaled = torch.tensor(scaler.forward(val_params)).to(device)
+    test_params_scaled = torch.tensor(scaler.forward(test_params)).to(device)
+    model = baseline_regressor.baseline_inverse_model()
+    model.to(device)
 
-    for folder in folders:
-        folder_path = join(dataset_path, folder)
-        files = listdir(folder_path)
-        for file in files:
-            file_path = join(folder_path, file)
-            if isfile(file_path):
-                if file.endswith('.mat') and file.__contains__('results'):
-                    dataset_path_list.append(file_path)
+    batch_size,epochs = 32,30
+    loss_fn = torch.nn.MSELoss()
+    # loss_fn = torch.nn.SmoothL1Loss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    train_gamma, val_gamma, test_gamma = torch.tensor(train_gamma).to(device), torch.tensor(val_gamma).to(device), torch.tensor(test_gamma).to(device)
+    nn_loss = utils.NN_benchmark(loss_fn, val_gamma, val_params_scaled)
 
-    dataset_path_list = np.array(dataset_path_list)
-    num_of_data_points = len(dataset_path_list)
-    num_of_train_points = int(num_of_data_points * train_val_test_split[0])
-    num_of_val_points = int(num_of_data_points * train_val_test_split[1])
-    num_of_test_points = num_of_data_points - num_of_train_points - num_of_val_points
+    trainer.run_model(model,loss_fn,optimizer,(train_gamma,train_params_scaled),(val_gamma,val_params_scaled),
+                      (test_gamma,test_params_scaled),epochs,batch_size,device)
 
-    train_pick = np.random.choice(num_of_data_points, num_of_train_points, replace=False)
-    val_pick = np.random.choice(np.setdiff1d(np.arange(num_of_data_points), train_pick), num_of_val_points, replace=False)
-    test_pick = np.setdiff1d(np.arange(num_of_data_points), np.concatenate((train_pick, val_pick)), assume_unique=True)
 
-    train_dataset_path_list = dataset_path_list[train_pick]
-    val_dataset_path_list = dataset_path_list[val_pick]
-    test_dataset_path_list = dataset_path_list[test_pick]
-    return train_dataset_path_list, val_dataset_path_list, test_dataset_path_list
 
 
 
