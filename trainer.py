@@ -38,17 +38,27 @@ def evaluate_model(model,loss_fn,data_loader,device,set):
 
 
 def run_model(model,loss_fn,optimizer,train_loader,val_loader,test_loader,epochs,batch_size,schedule_step,device):
-    train_losses,val_losses = [],[]
+    train_losses,train_losses_std,val_losses,val_losses_std = [],[],[],[]
+    # before training:
+    val_loss, val_loss_std = evaluate_model(model, loss_fn, val_loader, device, set='Validation')
+    train_loss,train_loss_std = evaluate_model(model,loss_fn,train_loader,device,set='Train')
+    train_losses.append(train_loss)
+    train_losses_std.append(train_loss_std)
+    val_losses.append(val_loss)
+    val_losses_std.append(val_loss_std)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=schedule_step, gamma=0.2)
     print('Starting training')
     for epoch in range(1,epochs+1):
         if epoch>10:
             scheduler.step()
             print('Epoch:',epoch,'LR:',scheduler.get_lr())
-        train_loss = train_model_single_epoch(model,loss_fn,optimizer,train_loader,epoch,batch_size,device)
+        _ = train_model_single_epoch(model,loss_fn,optimizer,train_loader,epoch,batch_size,device)
         val_loss,val_loss_std = evaluate_model(model,loss_fn,val_loader,device,set='Validation')
+        train_loss,train_loss_std = evaluate_model(model,loss_fn,train_loader,device,set='Train')
 
         train_losses.append(train_loss)
+        train_losses_std.append(train_loss_std)
         val_losses.append(val_loss)
-    evaluate_model(model,loss_fn,test_loader,device,set='Test')
-    return train_losses,val_losses
+        val_losses_std.append(val_loss_std)
+    _,_ = evaluate_model(model,loss_fn,test_loader,device,set='Test')
+    return train_losses,train_losses_std,val_losses,val_losses_std
