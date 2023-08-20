@@ -36,7 +36,7 @@ class baseline_inverse_model(nn.Module):
     """
     model designed to find the regression between 2002 spectrum parameters as input and the 12 geometric parameters as output.
     """
-    def __init__(self):
+    def __init__(self,weight_range=0.1):
         super(baseline_inverse_model,self).__init__()
         self.linear1 = nn.Linear(2002, 960)
         self.linear2 = nn.Linear(960, 960)
@@ -49,6 +49,10 @@ class baseline_inverse_model(nn.Module):
         self.linear9 = nn.Linear(60, 30)
         self.linear10 = nn.Linear(30, 12)
         self.relu = nn.ELU()
+        self.init_weights(weight_range)
+    def init_weights(self,init_range):
+        for p in self.parameters():
+            p.data.uniform_(-init_range, init_range)
     def forward(self,input):
         output = self.relu(self.linear1(input))
         output = self.relu(self.linear2(output))
