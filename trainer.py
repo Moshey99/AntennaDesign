@@ -46,7 +46,7 @@ def run_model(model,loss_fn,optimizer,train_loader,val_loader,test_loader,epochs
     train_losses_std.append(train_loss_std)
     val_losses.append(val_loss)
     val_losses_std.append(val_loss_std)
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=schedule_step, gamma=0.2)
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=schedule_step, gamma=0.4)
     print('Starting training')
     for epoch in range(1,epochs+1):
         if epoch>10:

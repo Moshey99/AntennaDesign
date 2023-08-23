@@ -37,6 +37,8 @@ def create_dataset(dataset_path_list_train,dataset_path_list_val,dataset_path_li
     print('Creating dataset...')
     data_parameters_train,data_parameters_val,data_parameters_test = [],[],[]
     data_gamma_train,data_gamma_val,data_gamma_test = [],[],[]
+    data_radiation_train,data_radiation_val,data_radiation_test = [],[],[]
+
     for path in dataset_path_list_train:
         mat = sio.loadmat(path)
         parameters = np.squeeze(mat['parameters'])
@@ -44,8 +46,13 @@ def create_dataset(dataset_path_list_train,dataset_path_list_val,dataset_path_li
             parameters = np.concatenate((parameters,np.array([0,0,19.55])))
         gamma = np.squeeze(mat['gamma'])
         gamma = np.concatenate((np.abs(gamma),np.angle(gamma)))
+        rad = np.squeeze(mat['farfield'])[:,:,1:,0]
+        rad_concat = np.concatenate((np.abs(rad),np.angle(rad)),axis=2)
+        rad_concat_swapped = np.swapaxes(rad_concat,0,2)
+        data_radiation_train.append(rad_concat_swapped)
         data_parameters_train.append(parameters)
         data_gamma_train.append(gamma)
+
     for path in dataset_path_list_val:
         mat = sio.loadmat(path)
         parameters = np.squeeze(mat['parameters'])
@@ -53,8 +60,13 @@ def create_dataset(dataset_path_list_train,dataset_path_list_val,dataset_path_li
             parameters = np.concatenate((parameters,np.array([0,0,19.55])))
         gamma = np.squeeze(mat['gamma'])
         gamma = np.concatenate((np.abs(gamma),np.angle(gamma)))
+        rad = np.squeeze(mat['farfield'])[:,:,1:,0]
+        rad_concat = np.concatenate((np.abs(rad),np.angle(rad)),axis=2)
+        rad_concat_swapped = np.swapaxes(rad_concat,0,2)
+        data_radiation_val.append(rad_concat_swapped)
         data_parameters_val.append(parameters)
         data_gamma_val.append(gamma)
+
     for path in dataset_path_list_test:
         mat = sio.loadmat(path)
         parameters = np.squeeze(mat['parameters'])
@@ -62,12 +74,17 @@ def create_dataset(dataset_path_list_train,dataset_path_list_val,dataset_path_li
             parameters = np.concatenate((parameters,np.array([0,0,19.55])))
         gamma = np.squeeze(mat['gamma'])
         gamma = np.concatenate((np.abs(gamma),np.angle(gamma)))
+        rad = np.squeeze(mat['farfield'])[:,:,1:,0]
+        rad_concat = np.concatenate((np.abs(rad),np.angle(rad)),axis=2)
+        rad_concat_swapped = np.swapaxes(rad_concat,0,2)
+        data_radiation_test.append(rad_concat_swapped)
         data_parameters_test.append(parameters)
         data_gamma_test.append(gamma)
 
     np.savez('data.npz',parameters_train=np.array(data_parameters_train),gamma_train=np.array(data_gamma_train),
-             parameters_val=np.array(data_parameters_val),gamma_val=np.array(data_gamma_val),
-             parameters_test=np.array(data_parameters_test),gamma_test=np.array(data_gamma_test))
+             radiation_train=np.array(data_radiation_train),parameters_val=np.array(data_parameters_val),
+             gamma_val=np.array(data_gamma_val),radiation_val=np.array(data_radiation_val),parameters_test=np.array(data_parameters_test),
+             gamma_test=np.array(data_gamma_test),radiation_test=np.array(data_radiation_test))
     print('Dataset created seccessfully. Saved in data.npz')
 class standard_scaler():
     def __init__(self):

@@ -6,7 +6,7 @@ class baseline_forward_model(nn.Module):
     model designed to find the regression between 12 geometric parameters as input and the spectrum parameters as output.
     for now spectrum parameters are 1001x2 = 2002 parameters.
     """
-    def __init__(self):
+    def __init__(self,weight_range=0.1,p_dropout=0.25):
         super(baseline_forward_model,self).__init__()
         self.linear1 = nn.Linear(12, 30)
         self.linear2 = nn.Linear(30, 60)
@@ -18,15 +18,21 @@ class baseline_forward_model(nn.Module):
         self.linear8 = nn.Linear(480, 960)
         self.linear9 = nn.Linear(960, 960)
         self.linear10 = nn.Linear(960, 2002)
+        self.dropout = nn.Dropout(p=p_dropout)
         self.relu = nn.ELU()
+        self.init_weights(weight_range)
     def forward(self,input):
         output = self.relu(self.linear1(input))
+        output = self.dropout(output)
         output = self.relu(self.linear2(output))
         output = self.relu(self.linear3(output))
+        output = self.dropout(output)
         output = self.relu(self.linear4(output))
         output = self.relu(self.linear5(output))
+        output = self.dropout(output)
         output = self.relu(self.linear6(output))
         output = self.relu(self.linear7(output))
+        output = self.dropout(output)
         output = self.relu(self.linear8(output))
         output = self.relu(self.linear9(output))
         output = self.linear10(output) # no activation function at the end, that is the geometric parameters
@@ -36,7 +42,7 @@ class baseline_inverse_model(nn.Module):
     """
     model designed to find the regression between 2002 spectrum parameters as input and the 12 geometric parameters as output.
     """
-    def __init__(self,weight_range=0.1):
+    def __init__(self,weight_range=0.1,p_dropout=0.25):
         super(baseline_inverse_model,self).__init__()
         self.linear1 = nn.Linear(2002, 960)
         self.linear2 = nn.Linear(960, 960)
@@ -45,9 +51,13 @@ class baseline_inverse_model(nn.Module):
         self.linear5 = nn.Linear(480, 240)
         self.linear6 = nn.Linear(240, 240)
         self.linear7 = nn.Linear(240, 120)
+        self.addlayer0 = nn.Linear(120, 120)
         self.linear8 = nn.Linear(120, 60)
+        self.addlayer1 = nn.Linear(60, 60)
         self.linear9 = nn.Linear(60, 30)
+        self.addlayer2 = nn.Linear(30, 30)
         self.linear10 = nn.Linear(30, 12)
+        self.dropout = nn.Dropout(p=p_dropout)
         self.relu = nn.ELU()
         self.init_weights(weight_range)
     def init_weights(self,init_range):
@@ -55,14 +65,22 @@ class baseline_inverse_model(nn.Module):
             p.data.uniform_(-init_range, init_range)
     def forward(self,input):
         output = self.relu(self.linear1(input))
+        output = self.dropout(output)
         output = self.relu(self.linear2(output))
         output = self.relu(self.linear3(output))
+        # output = self.dropout(output)
         output = self.relu(self.linear4(output))
         output = self.relu(self.linear5(output))
+        # output = self.dropout(output)
         output = self.relu(self.linear6(output))
+        output = self.dropout(output)
         output = self.relu(self.linear7(output))
+        output = self.relu(self.addlayer0(output))
         output = self.relu(self.linear8(output))
+        # output = self.relu(self.addlayer1(output))
+        output = self.dropout(output)
         output = self.relu(self.linear9(output))
+        # output = self.relu(self.addlayer2(output))
         output = self.linear10(output) # no activation function at the end, that is the geometric parameters
         return output
 class baseline_inverse_forward_model(nn.Module):
