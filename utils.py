@@ -5,6 +5,19 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import os
+import torch.nn as nn
+from sklearn.neighbors import NearestNeighbors
+import time
+
+def nearest_neighbor_loss(loss_fn,x_train,y_train, x_val, y_val, k=1):
+    strt = time.time()
+    nbrs = NearestNeighbors(n_neighbors=k, algorithm='auto').fit(x_train)
+    distances, indices = nbrs.kneighbors(x_val)
+    cnt = len(np.where(distances < 0.1)[0])
+    nearest_neighbor_y = y_train[indices].squeeze()
+    loss = loss_fn(torch.tensor(nearest_neighbor_y), torch.tensor(y_val))
+    print('nearest neighbor loss took ', time.time() - strt, ' seconds')
+    return loss
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 def split_dataset(dataset_path= r'C:\Users\moshey\PycharmProjects\etof_folder_git\AntennaDesign_data', train_val_test_split = [0.6,0.2, 0.2]):
@@ -81,11 +94,11 @@ def create_dataset(dataset_path_list_train,dataset_path_list_val,dataset_path_li
         data_parameters_test.append(parameters)
         data_gamma_test.append(gamma)
 
-    np.savez('data.npz',parameters_train=np.array(data_parameters_train),gamma_train=np.array(data_gamma_train),
+    np.savez('data_new.npz',parameters_train=np.array(data_parameters_train),gamma_train=np.array(data_gamma_train),
              radiation_train=np.array(data_radiation_train),parameters_val=np.array(data_parameters_val),
              gamma_val=np.array(data_gamma_val),radiation_val=np.array(data_radiation_val),parameters_test=np.array(data_parameters_test),
              gamma_test=np.array(data_gamma_test),radiation_test=np.array(data_radiation_test))
-    print('Dataset created seccessfully. Saved in data.npz')
+    print('Dataset created seccessfully. Saved in data_new.npz')
 class standard_scaler():
     def __init__(self):
         self.mean = None
@@ -99,15 +112,20 @@ class standard_scaler():
         return input*self.std + self.mean
 
 def NN_benchmark(loss,x_array,y_array):
+    print('Running NN benchmark...')
+    start_time = time.time()
     avg_loss = 0
+    cnt = 0
     for i in range(x_array.shape[0]):
         x = x_array[i]
         tmp_x_array = torch.clone(x_array)
-        tmp_x_array[i] = 100
+        tmp_x_array[i] = 1000000
         nearest_x_idx = torch.sum(torch.abs(tmp_x_array-x),dim=1).argmin()
+        nearest_x_dist = torch.sum(torch.abs(tmp_x_array-x),dim=1).min()
         tmp_loss = loss(y_array[i],y_array[nearest_x_idx])
         avg_loss += tmp_loss
     avg_loss /= x_array.shape[0]
+    print('NN benchmark time: ',time.time()-start_time)
     print('NN benchmark loss: ',avg_loss)
     return avg_loss
 
@@ -126,3 +144,17 @@ def display_losses(train_loss,val_loss):
     plt.plot(np.arange(len(val_loss)),val_loss,label='val loss')
     plt.legend()
     plt.show()
+
+if __name__=="__main__":
+    data = np.load('data.npz')
+    train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
+    val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
+    scaler = standard_scaler()
+    scaler.fit(train_params)
+    train_params_scaled = scaler.forward(train_params)
+    val_params_scaled = scaler.forward(val_params)
+    loss = nn.MSELoss()
+    nn_loss_backward = nearest_neighbor_loss(loss,train_gamma,train_params_scaled,val_gamma,val_params_scaled)
+    nn_loss_forward = nearest_neighbor_loss(loss,train_params_scaled,train_gamma,val_params_scaled,val_gamma)
+    print('NN loss backward: ',nn_loss_backward.item())
+    print('NN loss forward: ',nn_loss_forward.item())

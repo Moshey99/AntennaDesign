@@ -21,7 +21,7 @@ class baseline_forward_model(nn.Module):
         self.dropout = nn.Dropout(p=p_dropout)
         self.relu = nn.ELU()
         self.init_weights(weight_range)
-    def forward(self,input):
+    def forward(self,input): # input is the geometric parameters
         output = self.relu(self.linear1(input))
         output = self.dropout(output)
         output = self.relu(self.linear2(output))
@@ -63,8 +63,9 @@ class baseline_inverse_model(nn.Module):
     def init_weights(self,init_range):
         for p in self.parameters():
             p.data.uniform_(-init_range, init_range)
-    def forward(self,input):
-        output = self.relu(self.linear1(input))
+    def forward(self,inputs): # input is the spectrum parameters
+        gamma, radiation = inputs
+        output = self.relu(self.linear1(gamma))
         output = self.dropout(output)
         output = self.relu(self.linear2(output))
         output = self.relu(self.linear3(output))
