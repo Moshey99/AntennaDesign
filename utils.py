@@ -8,6 +8,9 @@ import os
 import torch.nn as nn
 from sklearn.neighbors import NearestNeighbors
 import time
+from models import baseline_regressor, inverse_hypernet
+import random
+import losses
 
 def nearest_neighbor_loss(loss_fn,x_train,y_train, x_val, y_val, k=1):
     strt = time.time()
@@ -144,11 +147,41 @@ def display_losses(train_loss,val_loss):
     plt.plot(np.arange(len(val_loss)),val_loss,label='val loss')
     plt.legend()
     plt.show()
-
+def display_gradients_norm(model):
+    total_norm = 0
+    parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
+    for p in parameters:
+        param_norm = p.grad.detach().data.norm(2)
+        total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
+def downsample_gamma(gamma,rate):
+    gamma_len = gamma.shape[1]
+    gamma_mag = gamma[:,:int(gamma_len/2)]
+    gamma_phase = gamma[:,int(gamma_len/2):]
+    gamma_mag_downsampled = gamma_mag[:,::rate]
+    gamma_phase_downsampled = gamma_phase[:,::rate]
+    gamma_downsampled = np.concatenate((gamma_mag_downsampled,gamma_phase_downsampled),axis=1)
+    return gamma_downsampled
 if __name__=="__main__":
+
     data = np.load('data.npz')
     train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
     val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
+    #--- for small model ---
+    train_gamma = downsample_gamma(train_gamma,4)
+    val_gamma = downsample_gamma(val_gamma,4)
+    #--- for small model ---
+    # val_gamma_mag = val_gamma[10,:int(val_gamma.shape[1]/2)]
+    # val_gamma_mag_sampled = val_gamma_mag[::4]
+    # x_interp = np.linspace(0,len(val_gamma_mag_sampled)-1,4*len(val_gamma_mag_sampled))
+    # x_interp_sampled = np.linspace(0,len(val_gamma_mag_sampled)-1,len(val_gamma_mag_sampled))
+    # val_gamma_interp = np.interp(x_interp,x_interp_sampled,val_gamma_mag_sampled)
+    # plt.figure()
+    # plt.plot(np.arange(len(val_gamma_mag)),val_gamma_mag)
+    # plt.plot(np.arange(len(val_gamma_mag_sampled)),val_gamma_mag_sampled)
+    # plt.plot(np.arange(len(val_gamma_interp)),val_gamma_interp)
+    # plt.show()
     scaler = standard_scaler()
     scaler.fit(train_params)
     train_params_scaled = scaler.forward(train_params)
@@ -158,3 +191,18 @@ if __name__=="__main__":
     nn_loss_forward = nearest_neighbor_loss(loss,train_params_scaled,train_gamma,val_params_scaled,val_gamma)
     print('NN loss backward: ',nn_loss_backward.item())
     print('NN loss forward: ',nn_loss_forward.item())
+    sample_idx = random.randint(0, val_params_scaled.shape[0])
+    GT_magnitude = val_gamma[sample_idx]
+    Huber_model = baseline_regressor.small_baseline_forward_model()
+    Huber_model.load_state_dict(torch.load('FORWARD_small_Huber_lamda0.pth'))
+    Huber_model.eval()
+    prediction_magnitude_huber = Huber_model(torch.from_numpy(val_params_scaled[sample_idx]).float().unsqueeze(0)).squeeze(0)
+
+    plt.figure()
+    plt.plot(np.arange(len(GT_magnitude)),GT_magnitude,label='GT')
+    # plot a seperator line between mag and phase
+    plt.plot(np.ones(100)*int(GT_magnitude.shape[0]/2),np.linspace(-1,1,100),'k--')
+    plt.plot(np.arange(len(prediction_magnitude_huber.detach().numpy())),prediction_magnitude_huber.detach().numpy(),label='Huber lamda 0')
+    plt.legend()
+    plt.title('Magnitude of gamma sample No. '+str(sample_idx))
+    plt.show()

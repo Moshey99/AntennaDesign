@@ -6,7 +6,7 @@ class baseline_forward_model(nn.Module):
     model designed to find the regression between 12 geometric parameters as input and the spectrum parameters as output.
     for now spectrum parameters are 1001x2 = 2002 parameters.
     """
-    def __init__(self,weight_range=0.1,p_dropout=0.25):
+    def __init__(self,weight_range=0.1):
         super(baseline_forward_model,self).__init__()
         self.linear1 = nn.Linear(12, 30)
         self.linear2 = nn.Linear(30, 60)
@@ -18,24 +18,56 @@ class baseline_forward_model(nn.Module):
         self.linear8 = nn.Linear(480, 960)
         self.linear9 = nn.Linear(960, 960)
         self.linear10 = nn.Linear(960, 2002)
-        self.dropout = nn.Dropout(p=p_dropout)
         self.relu = nn.ELU()
-        self.init_weights(weight_range)
+        self.sigmoid = nn.Sigmoid()
+        #self.init_weights(weight_range)
+    def init_weights(self,init_range):
+        for p in self.parameters():
+            p.data.uniform_(-init_range, init_range)
     def forward(self,input): # input is the geometric parameters
-        output = self.relu(self.linear1(input))
-        output = self.dropout(output)
+        scaled_params = input
+        output = self.relu(self.linear1(scaled_params))
         output = self.relu(self.linear2(output))
         output = self.relu(self.linear3(output))
-        output = self.dropout(output)
         output = self.relu(self.linear4(output))
         output = self.relu(self.linear5(output))
-        output = self.dropout(output)
         output = self.relu(self.linear6(output))
         output = self.relu(self.linear7(output))
-        output = self.dropout(output)
         output = self.relu(self.linear8(output))
         output = self.relu(self.linear9(output))
-        output = self.linear10(output) # no activation function at the end, that is the geometric parameters
+        output = self.linear10(output)
+        output = torch.cat((self.sigmoid(output[:,:output.shape[1]//2]),output[:,output.shape[1]//2:]),dim=1) # first half is sigmoided because this is magnitude
+        return output
+class small_baseline_forward_model(nn.Module):
+    """
+    model designed to find the regression between 12 geometric parameters as input and the spectrum parameters as output.
+    for now spectrum parameters are 251x2 = 502 parameters.
+    """
+    def __init__(self,weight_range=0.1):
+        super(small_baseline_forward_model,self).__init__()
+        self.linear1 = nn.Linear(12, 32)
+        self.linear2 = nn.Linear(32, 64)
+        self.linear2half = nn.Linear(64, 64)
+        self.linear3 = nn.Linear(64, 128)
+        self.linear4 = nn.Linear(128, 256)
+        self.linear4half = nn.Linear(256, 256)
+        self.linear5 = nn.Linear(256, 502)
+        self.relu = nn.ELU()
+        self.sigmoid = nn.Sigmoid()
+        #self.init_weights(weight_range)
+    def init_weights(self,init_range):
+        for p in self.parameters():
+            p.data.uniform_(-init_range, init_range)
+    def forward(self,input): # input is the geometric parameters
+        scaled_params = input
+        output = self.relu(self.linear1(scaled_params))
+        output = self.relu(self.linear2(output))
+        output = self.relu(self.linear2half(output))
+        output = self.relu(self.linear3(output))
+        output = self.relu(self.linear4(output))
+        output = self.relu(self.linear4half(output))
+        output = self.linear5(output)
+        output = torch.cat((self.sigmoid(output[:,:output.shape[1]//2]),output[:,output.shape[1]//2:]),dim=1) #magnitude is between 0 and 1
         return output
 
 class baseline_inverse_model(nn.Module):
@@ -99,5 +131,5 @@ class baseline_inverse_forward_model(nn.Module):
 
 if __name__ == "__main__":
     print("print number of parameters in the model")
-    model = baseline_inverse_forward_model()
+    model = baseline_forward_model()
     print(sum(p.numel() for p in model.parameters() if p.requires_grad))

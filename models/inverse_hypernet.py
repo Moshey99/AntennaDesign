@@ -92,7 +92,7 @@ class inverse_radiation_hyper(nn.Module):
 
 
 if __name__ == "__main__":
-    model = inverse_radiation_hyper()
+    model = inverse_radiation_no_hyper()
     # gamma = torch.randn(1,2002)
     # radiation = torch.randn(1,4,91,181)
     # output = model((gamma,radiation))
