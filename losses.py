@@ -62,4 +62,17 @@ class gamma_loss(nn.Module):
         loss = torch.where(diff < self.delta, 0.5 * ( torch.square(gamma_x - target_x) + torch.square(gamma_y - target_y) ), self.delta * (diff-0.5*self.delta)).mean()
         return loss
 
+class gamma_loss_dB(nn.Module):
+    def __init__(self):
+        super(gamma_loss_dB,self).__init__()
+        self.phase_loss = CircularLoss()
+        self.dB_magnitude_loss = nn.HuberLoss()
+    def forward(self,pred,target):
+        pred_magnitude = pred[:,:pred.shape[1]//2]
+        pred_phase = pred[:,pred.shape[1]//2:]
+        target_magnitude = target[:,:target.shape[1]//2]
+        target_phase = target[:,target.shape[1]//2:]
+        loss = self.dB_magnitude_loss(pred_magnitude,target_magnitude) + self.phase_loss(pred_phase,target_phase)
+        return loss
+
 

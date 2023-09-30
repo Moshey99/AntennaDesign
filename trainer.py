@@ -15,6 +15,8 @@ def train_model_single_epoch(model, loss_fn, optimizer, train_loader, epoch,inv_
             data, target = sample[0], sample[1]
         elif inv_or_forw == 'inverse':
             data, target = (sample[0], sample[1]), sample[2]
+        elif inv_or_forw == 'inverse_forward':
+            data, target = (sample[0], sample[1]), sample[0]
         optimizer.zero_grad()
         output = model(data)
         loss = loss_fn(output, target)  # average loss over batch
@@ -53,6 +55,8 @@ def evaluate_model(model, loss_fn, data_loader, set,inv_or_forw):
                 data, target = sample[0], sample[1]
             elif inv_or_forw == 'inverse':
                 data, target = (sample[0], sample[1]), sample[2]
+            elif inv_or_forw == 'inverse_forward':
+                data, target = (sample[0], sample[1]), sample[0]
             output = model(data)
             loss = loss_fn(output, target).item()
             all_losses = np.append(all_losses, loss)

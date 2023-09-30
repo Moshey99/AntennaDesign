@@ -8,10 +8,23 @@ import os
 import torch.nn as nn
 from sklearn.neighbors import NearestNeighbors
 import time
+import trainer
+import losses
 from models import baseline_regressor, inverse_hypernet
 import random
-import losses
 
+def create_dataloader(gamma, radiation, params_scaled, batch_size, device,inv_or_forw = 'inverse'):
+    gamma = torch.tensor(gamma).to(device).float()
+    radiation = torch.tensor(radiation).to(device).float()
+    params_scaled = torch.tensor(params_scaled).to(device).float()
+    if inv_or_forw == 'inverse':
+        dataset = torch.utils.data.TensorDataset(gamma, radiation, params_scaled)
+    elif inv_or_forw == 'forward':
+        dataset = torch.utils.data.TensorDataset(params_scaled, gamma)
+    elif inv_or_forw == 'inverse_forward':
+        dataset = torch.utils.data.TensorDataset(gamma, radiation)
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    return data_loader
 def nearest_neighbor_loss(loss_fn,x_train,y_train, x_val, y_val, k=1):
     strt = time.time()
     nbrs = NearestNeighbors(n_neighbors=k, algorithm='auto').fit(x_train)
@@ -19,7 +32,6 @@ def nearest_neighbor_loss(loss_fn,x_train,y_train, x_val, y_val, k=1):
     cnt = len(np.where(distances < 0.1)[0])
     nearest_neighbor_y = y_train[indices].squeeze()
     loss = loss_fn(torch.tensor(nearest_neighbor_y), torch.tensor(y_val))
-    print('nearest neighbor loss took ', time.time() - strt, ' seconds')
     return loss
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -43,7 +55,10 @@ def split_dataset(dataset_path= r'C:\Users\moshey\PycharmProjects\etof_folder_gi
 
     train_pick = np.random.choice(num_of_data_points, num_of_train_points, replace=False)
     val_pick = np.random.choice(np.setdiff1d(np.arange(num_of_data_points), train_pick), num_of_val_points, replace=False)
-    test_pick = np.setdiff1d(np.arange(num_of_data_points), np.concatenate((train_pick, val_pick)), assume_unique=True)
+    if train_val_test_split[2] > 0:
+        test_pick = np.setdiff1d(np.arange(num_of_data_points), np.concatenate((train_pick, val_pick)), assume_unique=True)
+    else:
+        test_pick = val_pick
 
     train_dataset_path_list = dataset_path_list[train_pick]
     val_dataset_path_list = dataset_path_list[val_pick]
@@ -114,24 +129,6 @@ class standard_scaler():
     def inverse(self,input):
         return input*self.std + self.mean
 
-def NN_benchmark(loss,x_array,y_array):
-    print('Running NN benchmark...')
-    start_time = time.time()
-    avg_loss = 0
-    cnt = 0
-    for i in range(x_array.shape[0]):
-        x = x_array[i]
-        tmp_x_array = torch.clone(x_array)
-        tmp_x_array[i] = 1000000
-        nearest_x_idx = torch.sum(torch.abs(tmp_x_array-x),dim=1).argmin()
-        nearest_x_dist = torch.sum(torch.abs(tmp_x_array-x),dim=1).min()
-        tmp_loss = loss(y_array[i],y_array[nearest_x_idx])
-        avg_loss += tmp_loss
-    avg_loss /= x_array.shape[0]
-    print('NN benchmark time: ',time.time()-start_time)
-    print('NN benchmark loss: ',avg_loss)
-    return avg_loss
-
 def display_gamma(gamma):
 
     gamma_real = gamma[:int(gamma.shape[0]/2)]
@@ -163,46 +160,89 @@ def downsample_gamma(gamma,rate):
     gamma_phase_downsampled = gamma_phase[:,::rate]
     gamma_downsampled = np.concatenate((gamma_mag_downsampled,gamma_phase_downsampled),axis=1)
     return gamma_downsampled
-if __name__=="__main__":
+def downsample_radiation(radiation,rates):
+    first_dim_rate, second_dim_rate = rates
+    radiation_downsampled = radiation[:,:,::first_dim_rate,::second_dim_rate]
+    return radiation_downsampled
 
+def convert_dataset_to_dB(data):
+    train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
+    val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
+    test_params, test_gamma, test_radiation = data['parameters_test'], data['gamma_test'], data['radiation_test']
+    train_gamma[:,:int(train_gamma.shape[1]/2)] = 10*np.log10(train_gamma[:,:int(train_gamma.shape[1]/2)])
+    val_gamma[:,:int(val_gamma.shape[1]/2)] = 10*np.log10(val_gamma[:,:int(val_gamma.shape[1]/2)])
+    test_gamma[:,:int(test_gamma.shape[1]/2)] = 10*np.log10(test_gamma[:,:int(test_gamma.shape[1]/2)])
+    train_radiation[:,:int(train_radiation.shape[1]/2)] = 10*np.log10(train_radiation[:,:int(train_radiation.shape[1]/2)])
+    val_radiation[:,:int(val_radiation.shape[1]/2)] = 10*np.log10(val_radiation[:,:int(val_radiation.shape[1]/2)])
+    test_radiation[:,:int(test_radiation.shape[1]/2)] = 10*np.log10(test_radiation[:,:int(test_radiation.shape[1]/2)])
+    np.savez('data_dB.npz',parameters_train=train_params,gamma_train=train_gamma,radiation_train=train_radiation,
+                parameters_val=val_params,gamma_val=val_gamma,radiation_val=val_radiation,
+                parameters_test=test_params,gamma_test=test_gamma,radiation_test=test_radiation)
+    print('Dataset converted to dB. Saved in data_dB.npz')
+
+def reorganize_data(data):
+    features_to_exclude = [5,6]
+    train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
+    val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
+    test_params, test_gamma, test_radiation = data['parameters_test'], data['gamma_test'], data['radiation_test']
+    all_params, all_gamma, all_radiation = np.concatenate((train_params,val_params,test_params),axis=0), np.concatenate((train_gamma,val_gamma,test_gamma),axis=0), np.concatenate((train_radiation,val_radiation,test_radiation),axis=0)
+    first_feature,second_feature = all_params[:,features_to_exclude[0]], all_params[:,features_to_exclude[1]]
+    pct20first, pct30first = np.percentile(first_feature,20), np.percentile(first_feature,30)
+    pct70second, pct80second =  np.percentile(second_feature,60), np.percentile(second_feature,80)
+    test_params_idx = np.where(np.logical_or(np.logical_and(first_feature>pct20first,first_feature<pct30first),
+                                         np.logical_and(second_feature>pct70second,second_feature<pct80second)))
+    test_params_new, test_gamma_new, test_radiation_new = all_params[test_params_idx], all_gamma[test_params_idx], all_radiation[test_params_idx]
+    train_params_new, train_gamma_new, train_radiation_new = np.delete(all_params,test_params_idx,axis=0), np.delete(all_gamma,test_params_idx,axis=0), np.delete(all_radiation,test_params_idx,axis=0)
+    val_idx = np.random.choice(train_params_new.shape[0],int(0.25*train_params_new.shape[0]),replace=False) # 25% of remaining data is about 20% of original data
+    val_params_new, val_gamma_new, val_radiation_new = train_params_new[val_idx], train_gamma_new[val_idx], train_radiation_new[val_idx]
+    train_params_new, train_gamma_new, train_radiation_new = np.delete(train_params_new,val_idx,axis=0), np.delete(train_gamma_new,val_idx,axis=0), np.delete(train_radiation_new,val_idx,axis=0)
+    np.savez('data_reorganized.npz',parameters_train=train_params_new,gamma_train=train_gamma_new,radiation_train=train_radiation_new,
+                parameters_val=val_params_new,gamma_val=val_gamma_new,radiation_val=val_radiation_new,
+                parameters_test=test_params_new,gamma_test=test_gamma_new,radiation_test=test_radiation_new)
+
+if __name__=="__main__":
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     data = np.load('data.npz')
     train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
     val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
+    test_params, test_gamma, test_radiation = data['parameters_test'], data['gamma_test'], data['radiation_test']
     #--- for small model ---
     train_gamma = downsample_gamma(train_gamma,4)
     val_gamma = downsample_gamma(val_gamma,4)
+    test_gamma = downsample_gamma(test_gamma,4)
     #--- for small model ---
-    # val_gamma_mag = val_gamma[10,:int(val_gamma.shape[1]/2)]
-    # val_gamma_mag_sampled = val_gamma_mag[::4]
-    # x_interp = np.linspace(0,len(val_gamma_mag_sampled)-1,4*len(val_gamma_mag_sampled))
+    # val_gamma_sample = val_gamma[100].reshape(1,-1)
+    # rate = 4
+    # val_gamma_mag_sampled = downsample_gamma(val_gamma_sample,rate).reshape(-1)
+    # x_interp = np.linspace(0,len(val_gamma_mag_sampled)-1,rate*len(val_gamma_mag_sampled))
     # x_interp_sampled = np.linspace(0,len(val_gamma_mag_sampled)-1,len(val_gamma_mag_sampled))
     # val_gamma_interp = np.interp(x_interp,x_interp_sampled,val_gamma_mag_sampled)
     # plt.figure()
-    # plt.plot(np.arange(len(val_gamma_mag)),val_gamma_mag)
-    # plt.plot(np.arange(len(val_gamma_mag_sampled)),val_gamma_mag_sampled)
-    # plt.plot(np.arange(len(val_gamma_interp)),val_gamma_interp)
+    # val_gamma_sample = val_gamma_sample.reshape(-1)
+    # plt.plot(np.arange(len(val_gamma_sample)),val_gamma_sample,'k.',label='full resolution gamma')
+    # plt.plot(np.arange(len(val_gamma_interp)),val_gamma_interp,'r.',label='reconstruction after x4 downsampled gamma')
+    # plt.title('How does the gamma look after reconstruction from x4 downsampled gamma?')
+    # plt.legend()
     # plt.show()
     scaler = standard_scaler()
     scaler.fit(train_params)
     train_params_scaled = scaler.forward(train_params)
     val_params_scaled = scaler.forward(val_params)
-    loss = nn.MSELoss()
-    nn_loss_backward = nearest_neighbor_loss(loss,train_gamma,train_params_scaled,val_gamma,val_params_scaled)
+    test_params_scaled = scaler.forward(test_params)
+    loss = losses.gamma_loss()
+    nn_loss_backward = nearest_neighbor_loss(loss,train_gamma,train_params_scaled,test_gamma,test_params_scaled)
     nn_loss_forward = nearest_neighbor_loss(loss,train_params_scaled,train_gamma,val_params_scaled,val_gamma)
     print('NN loss backward: ',nn_loss_backward.item())
     print('NN loss forward: ',nn_loss_forward.item())
-    sample_idx = random.randint(0, val_params_scaled.shape[0])
-    GT_magnitude = val_gamma[sample_idx]
-    Huber_model = baseline_regressor.small_baseline_forward_model()
-    Huber_model.load_state_dict(torch.load('FORWARD_small_Huber_lamda0.pth'))
-    Huber_model.eval()
-    prediction_magnitude_huber = Huber_model(torch.from_numpy(val_params_scaled[sample_idx]).float().unsqueeze(0)).squeeze(0)
-
-    plt.figure()
-    plt.plot(np.arange(len(GT_magnitude)),GT_magnitude,label='GT')
-    # plot a seperator line between mag and phase
-    plt.plot(np.ones(100)*int(GT_magnitude.shape[0]/2),np.linspace(-1,1,100),'k--')
-    plt.plot(np.arange(len(prediction_magnitude_huber.detach().numpy())),prediction_magnitude_huber.detach().numpy(),label='Huber lamda 0')
+    # inverse_net_concat = inverse_hypernet.inverse_forward_concat()
+    # inverse_net_concat.inverse_module.load_state_dict(torch.load('INVERSE_small_gammasloss_forward10layers.pth'))
+    # inverse_net_concat.forward_module.load_state_dict(torch.load('FORWARD_small_gamma_loss_10layers.pth'))
+    # test_loader = create_dataloader(test_gamma,test_radiation,test_params_scaled,test_gamma.shape[0],device,inv_or_forw='inverse_forward')
+    a = torch.load('output_gamma_concat.pth')
+    sample = 60
+    plt.plot(np.arange(len(a[sample])),a[sample],'b',label='reconstructed gamma')
+    plt.plot(np.arange(len(test_gamma[sample])),test_gamma[sample],'r',label='true gamma')
+    plt.plot(np.ones(20)*0.5*test_gamma.shape[1],np.arange(-1,1,0.1),'k--')
+    plt.title(' GT gamma VS reconstructed gamma, sample #'+str(sample))
     plt.legend()
-    plt.title('Magnitude of gamma sample No. '+str(sample_idx))
     plt.show()

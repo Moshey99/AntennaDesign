@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models import resnet
+from models import resnet,baseline_regressor
 
 
 class inverse_radiation_no_hyper(nn.Module):
@@ -11,16 +11,16 @@ class inverse_radiation_no_hyper(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=2,stride=2)
         self.radiation_backbone = nn.Sequential(resnet.ResNetBasicBlock(4,16),resnet.ResNetBasicBlock(16,16),resnet.ResNetBasicBlock(16,16),resnet.ResNetBasicBlock(16,16),
                                                 nn.Conv2d(16,32,kernel_size=3),nn.BatchNorm2d(32),self.relu,self.maxpool,
-                                                nn.Conv2d(32,128,kernel_size=3),nn.BatchNorm2d(128),self.relu,self.maxpool,
-                                                nn.Conv2d(128,512,kernel_size=3),nn.BatchNorm2d(512),self.relu,self.maxpool,
-                                                nn.Conv2d(512,1024,kernel_size=3),nn.BatchNorm2d(1024),self.relu,self.maxpool,
-                                                nn.Conv2d(1024,2002,kernel_size=3),nn.BatchNorm2d(2002),self.relu,nn.MaxPool2d(kernel_size=(7,1),stride=1))
+                                                nn.Conv2d(32,64,kernel_size=3),nn.BatchNorm2d(64),self.relu,self.maxpool,
+                                                nn.Conv2d(64,128,kernel_size=3),nn.BatchNorm2d(128),self.relu,self.maxpool,
+                                                nn.Conv2d(128,256,kernel_size=3),nn.BatchNorm2d(256),self.relu,self.maxpool,
+                                                nn.Conv2d(256,286,kernel_size=3),nn.BatchNorm2d(286),self.relu)
         self.fc1 = nn.Linear(4004,1024)
-        self.bn1 = nn.BatchNorm1d(1024)
+        #self.bn1 = nn.BatchNorm1d(1024)
         self.fc2 = nn.Linear(1024,1024)
-        self.bn2 = nn.BatchNorm1d(1024)
+        #self.bn2 = nn.BatchNorm1d(1024)
         self.fc3 = nn.Linear(1024,128)
-        self.bn3 = nn.BatchNorm1d(128)
+        #self.bn3 = nn.BatchNorm1d(128)
         self.fc4 = nn.Linear(128,12)
 
 
@@ -33,11 +33,44 @@ class inverse_radiation_no_hyper(nn.Module):
         radiation_features = radiation_features.view(radiation_features.shape[0],-1)
         x = torch.cat((gamma,radiation_features),dim=1)
         x = self.relu(self.fc1(x))
-        x = self.bn1(x)
         x = self.relu(self.fc2(x))
-        x = self.bn2(x)
         x = self.relu(self.fc3(x))
-        x = self.bn3(x)
+        x = self.fc4(x)
+
+        return x
+
+class small_inverse_radiation_no_hyper(nn.Module):
+    def __init__(self,p_drop=0.25):
+        super(small_inverse_radiation_no_hyper,self).__init__()
+        self.relu = nn.ELU()
+        self.dropout = nn.Dropout(p=p_drop)
+        self.maxpool = nn.MaxPool2d(kernel_size=2,stride=2)
+        self.radiation_backbone = nn.Sequential(resnet.ResNetBasicBlock(4,16),resnet.ResNetBasicBlock(16,16),resnet.ResNetBasicBlock(16,16),resnet.ResNetBasicBlock(16,16),
+                                                nn.Conv2d(16,32,kernel_size=3),nn.BatchNorm2d(32),self.relu,self.maxpool,
+                                                nn.Conv2d(32,64,kernel_size=3),nn.BatchNorm2d(64),self.relu,self.maxpool,
+                                                nn.Conv2d(64,128,kernel_size=3),nn.BatchNorm2d(128),self.relu,self.maxpool,
+                                                nn.Conv2d(128,256,kernel_size=3),nn.BatchNorm2d(256),self.relu,self.maxpool,
+                                                nn.Conv2d(256,286,kernel_size=3),nn.BatchNorm2d(286),self.relu)
+        self.fc1 = nn.Linear(2504,1024)
+        #self.bn1 = nn.BatchNorm1d(1024)
+        self.fc2 = nn.Linear(1024,1024)
+        #self.bn2 = nn.BatchNorm1d(1024)
+        self.fc3 = nn.Linear(1024,128)
+        #self.bn3 = nn.BatchNorm1d(128)
+        self.fc4 = nn.Linear(128,12)
+
+
+
+    def forward(self,input):
+        gamma, radiation = input
+        if radiation.ndim == 3:
+            radiation = radiation.unsqueeze(0)
+        radiation_features = self.radiation_backbone(radiation)
+        radiation_features = radiation_features.view(radiation_features.shape[0],-1)
+        x = torch.cat((gamma,radiation_features),dim=1)
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.relu(self.fc3(x))
         x = self.fc4(x)
 
         return x
@@ -89,6 +122,26 @@ class inverse_radiation_hyper(nn.Module):
     def scaled_linear(self,weights,scale,bias,input):
         input = input.matmul(weights.t())*scale + bias
         return input
+
+class inverse_forward_concat(nn.Module):
+    def __init__(self):
+        super(inverse_forward_concat,self).__init__()
+        self.inverse_module = small_inverse_radiation_no_hyper()
+        self.forward_module = baseline_regressor.small_deeper_baseline_forward_model()
+
+    def load_and_freeze_forward(self,weights_path):
+        self.forward_module.load_state_dict(torch.load(weights_path))
+        for param in self.forward_module.parameters():
+            param.requires_grad = False
+    def forward(self,input):
+        geometry = self.inverse_module(input)
+        gamma = self.forward_module(geometry)
+        return gamma
+
+
+
+
+
 
 
 if __name__ == "__main__":
