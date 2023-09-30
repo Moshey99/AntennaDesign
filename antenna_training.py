@@ -1,6 +1,4 @@
-import scipy.io as sio
 import numpy as np
-from sklearn.model_selection import GridSearchCV
 import utils
 from utils import standard_scaler, create_dataset, split_dataset
 from models import baseline_regressor, inverse_hypernet
