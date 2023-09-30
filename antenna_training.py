@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # paths_dict = {'train':train_paths,'val':val_paths,'test':test_paths}
     # pickle.dump(paths_dict,open('paths_dict_data_new.pkl','wb'))
     #create_dataset(train_paths,val_paths,test_paths)
-    data = np.load('data.npz')
+    data = np.load(r'../AntennaDesign_data/data.npz')
     train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
     val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
     test_params, test_gamma, test_radiation = data['parameters_test'], data['gamma_test'], data['radiation_test']
