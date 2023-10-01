@@ -46,7 +46,7 @@ def train_model_single_epoch(model, loss_fn, optimizer, train_loader, epoch,inv_
     return avg_loss
 
 
-def evaluate_model(model, loss_fn, data_loader, set,inv_or_forw):
+def evaluate_model(model, loss_fn, data_loader, set,inv_or_forw, save_output = False):
     model.eval()
     all_losses = np.array([])
     with torch.no_grad():
@@ -58,6 +58,8 @@ def evaluate_model(model, loss_fn, data_loader, set,inv_or_forw):
             elif inv_or_forw == 'inverse_forward':
                 data, target = (sample[0], sample[1]), sample[0]
             output = model(data)
+            if save_output:
+                torch.save(output, 'output.pth')
             loss = loss_fn(output, target).item()
             all_losses = np.append(all_losses, loss)
     avg_loss = np.mean(all_losses)

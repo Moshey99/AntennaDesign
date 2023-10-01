@@ -202,7 +202,7 @@ def reorganize_data(data):
 
 if __name__=="__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    data = np.load('data.npz')
+    data = np.load(r'../AntennaDesign_data/data.npz')
     train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
     val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
     test_params, test_gamma, test_radiation = data['parameters_test'], data['gamma_test'], data['radiation_test']
@@ -211,19 +211,6 @@ if __name__=="__main__":
     val_gamma = downsample_gamma(val_gamma,4)
     test_gamma = downsample_gamma(test_gamma,4)
     #--- for small model ---
-    # val_gamma_sample = val_gamma[100].reshape(1,-1)
-    # rate = 4
-    # val_gamma_mag_sampled = downsample_gamma(val_gamma_sample,rate).reshape(-1)
-    # x_interp = np.linspace(0,len(val_gamma_mag_sampled)-1,rate*len(val_gamma_mag_sampled))
-    # x_interp_sampled = np.linspace(0,len(val_gamma_mag_sampled)-1,len(val_gamma_mag_sampled))
-    # val_gamma_interp = np.interp(x_interp,x_interp_sampled,val_gamma_mag_sampled)
-    # plt.figure()
-    # val_gamma_sample = val_gamma_sample.reshape(-1)
-    # plt.plot(np.arange(len(val_gamma_sample)),val_gamma_sample,'k.',label='full resolution gamma')
-    # plt.plot(np.arange(len(val_gamma_interp)),val_gamma_interp,'r.',label='reconstruction after x4 downsampled gamma')
-    # plt.title('How does the gamma look after reconstruction from x4 downsampled gamma?')
-    # plt.legend()
-    # plt.show()
     scaler = standard_scaler()
     scaler.fit(train_params)
     train_params_scaled = scaler.forward(train_params)
@@ -234,15 +221,19 @@ if __name__=="__main__":
     nn_loss_forward = nearest_neighbor_loss(loss,train_params_scaled,train_gamma,val_params_scaled,val_gamma)
     print('NN loss backward: ',nn_loss_backward.item())
     print('NN loss forward: ',nn_loss_forward.item())
-    # inverse_net_concat = inverse_hypernet.inverse_forward_concat()
-    # inverse_net_concat.inverse_module.load_state_dict(torch.load('INVERSE_small_gammasloss_forward10layers.pth'))
-    # inverse_net_concat.forward_module.load_state_dict(torch.load('FORWARD_small_gamma_loss_10layers.pth'))
-    # test_loader = create_dataloader(test_gamma,test_radiation,test_params_scaled,test_gamma.shape[0],device,inv_or_forw='inverse_forward')
-    a = torch.load('output_gamma_concat.pth')
+    inverse_net_concat = inverse_hypernet.inverse_forward_concat()
+    inverse_net_concat.inverse_module.load_state_dict(torch.load('INVERSE_small_gammasloss_forward10layers.pth'))
+    inverse_net_concat.forward_module.load_state_dict(torch.load('FORWARD_small_gamma_loss_10layers.pth'))
+    test_loader = create_dataloader(test_gamma,test_radiation,test_params_scaled,test_gamma.shape[0],device,inv_or_forw='inverse_forward')
+    test_gamma_output = torch.load('output_gamma_concat.pth')
     sample = 60
-    plt.plot(np.arange(len(a[sample])),a[sample],'b',label='reconstructed gamma')
+    test_gamma_output_sample = test_gamma_output[sample]
+    plt.plot(np.arange(len(test_gamma_output_sample)), test_gamma_output_sample, 'b', label='reconstructed gamma')
     plt.plot(np.arange(len(test_gamma[sample])),test_gamma[sample],'r',label='true gamma')
     plt.plot(np.ones(20)*0.5*test_gamma.shape[1],np.arange(-1,1,0.1),'k--')
     plt.title(' GT gamma VS reconstructed gamma, sample #'+str(sample))
+    geometry_loss = nn.HuberLoss()
+    test_loader_inverse = create_dataloader(test_gamma, test_radiation, test_params_scaled, 1, device,inv_or_forw='inverse')
+    trainer.evaluate_model(inverse_net_concat.inverse_module,geometry_loss,test_loader_inverse,'test','inverse')
     plt.legend()
     plt.show()
