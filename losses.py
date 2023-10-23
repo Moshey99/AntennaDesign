@@ -5,7 +5,7 @@ class multiloss(nn.Module):
     def __init__(self, objective_num,losses_fns):
         super(multiloss, self).__init__()
         self.objective_num = objective_num
-        self.log_var = nn.Parameter(torch.zeros(self.objective_num))
+        self.log_var = nn.Parameter(torch.zeros(self.objective_num),requires_grad=True)
         self.losses_fns = losses_fns
 
     def forward(self, output, target):
@@ -23,29 +23,7 @@ class CircularLoss(nn.Module):
         cos_delta_theta = torch.cos(delta_theta)
         loss = 1 - cos_delta_theta
         return loss.mean()
-class gamma_continuity_loss(nn.Module):
-    def __init__(self,lamda):
-        super(gamma_continuity_loss,self).__init__()
-        self.lamda = lamda # regularization parameter
-    def forward(self,gamma,target=None):
-        gamma = torch.tensor(gamma)
-        gamma_magnitude = gamma[:,:gamma.shape[1]//2]
-        first_der = torch.diff(gamma_magnitude,dim=1)
-        second_der_sqrd = torch.square(torch.diff(first_der,dim=1))
-        smoothness_loss = self.lamda*torch.mean(second_der_sqrd)
-        return smoothness_loss
 
-class CustomHuberLoss(nn.Module):
-    def __init__(self, delta=1.0,mag_continuity_lamda=0):
-        super().__init__()
-        self.delta = delta
-        self.mag_continuity_lamda = mag_continuity_lamda
-    def forward(self, pred, target):
-        mag_con_loss_fn = gamma_continuity_loss(self.mag_continuity_lamda)
-        mag_con_loss = mag_con_loss_fn(pred)
-        diff = torch.abs(pred - target)
-        huber_loss = torch.where(diff < self.delta, 0.5 * diff**2, self.delta * (diff-0.5*self.delta)).mean()
-        return huber_loss+mag_con_loss
 
 class gamma_loss(nn.Module):
     def __init__(self,delta=1.0):
@@ -68,11 +46,40 @@ class gamma_loss_dB(nn.Module):
         self.phase_loss = CircularLoss()
         self.dB_magnitude_loss = nn.HuberLoss()
     def forward(self,pred,target):
-        pred_magnitude = pred[:,:pred.shape[1]//2]
+        pred_magnitude = 10*torch.log10(pred[:,:pred.shape[1]//2]) # expecting pred in linear scale, convert to dB
         pred_phase = pred[:,pred.shape[1]//2:]
-        target_magnitude = target[:,:target.shape[1]//2]
+        target_magnitude = target[:,:target.shape[1]//2] # expecting target in dB
         target_phase = target[:,target.shape[1]//2:]
         loss = self.dB_magnitude_loss(pred_magnitude,target_magnitude) + self.phase_loss(pred_phase,target_phase)
+        return loss
+
+class radiation_loss_dB(nn.Module):
+    def __init__(self,rad_phase_factor=1.0):
+        super(radiation_loss_dB,self).__init__()
+        self.phase_loss = CircularLoss()
+        self.dB_magnitude_loss = nn.HuberLoss()
+        self.rad_phase_factor = rad_phase_factor
+    def forward(self,pred,target):
+        pred_magnitude = pred[:,:pred.shape[1]//2] # expecting pred in dB
+        pred_phase = pred[:,pred.shape[1]//2:]
+        target_magnitude = target[:,:target.shape[1]//2] # expecting target in dB
+        target_phase = target[:,target.shape[1]//2:]
+        loss = self.dB_magnitude_loss(pred_magnitude,target_magnitude) + self.rad_phase_factor*self.phase_loss(pred_phase,target_phase)
+        return loss
+class GammaRad_loss(nn.Module):
+    def __init__(self,gamma_loss_fn=None,radiation_loss_fn=None,lamda=1.0,rad_phase_fac=1.0):
+        super(GammaRad_loss,self).__init__()
+        if gamma_loss_fn is None:
+            self.gamma_loss_fn = gamma_loss_dB()
+        if radiation_loss_fn is None:
+            self.radiation_loss_fn = radiation_loss_dB(rad_phase_fac)
+        self.lamda = lamda
+    def forward(self,pred,target):
+        gamma_pred,radiation_pred = pred
+        gamma_target,radiation_target = target
+        gamma_loss = self.gamma_loss_fn(gamma_pred,gamma_target)
+        radiation_loss = self.radiation_loss_fn(radiation_pred,radiation_target)
+        loss = gamma_loss + self.lamda*radiation_loss
         return loss
 
 

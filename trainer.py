@@ -4,19 +4,23 @@ import numpy as np
 import utils
 #from losses import *
 
-
+def produce_data_target(sample,inv_or_forw):
+    if inv_or_forw == 'forward_gamma' or inv_or_forw == 'forward_radiation':
+        data, target = sample[0], sample[1]
+    elif inv_or_forw == 'inverse':
+        data, target = (sample[0], sample[1]), sample[2]
+    elif inv_or_forw == 'inverse_forward':
+        data, target = (sample[0], sample[1]), sample[0]
+    elif inv_or_forw == 'inverse_forward_GammaRad':
+        data, target = (sample[0], sample[1]), (sample[0], utils.downsample_radiation(sample[1], rates=[4, 2]))
+    return data,target
 def train_model_single_epoch(model, loss_fn, optimizer, train_loader, epoch,inv_or_forw, grad_accumulation_step = None, clip_norm=1 ):
     model.train()
 
     running_loss = 0
     num_batches_per_print = 100
     for idx, sample in enumerate(train_loader):
-        if inv_or_forw == 'forward':
-            data, target = sample[0], sample[1]
-        elif inv_or_forw == 'inverse':
-            data, target = (sample[0], sample[1]), sample[2]
-        elif inv_or_forw == 'inverse_forward':
-            data, target = (sample[0], sample[1]), sample[0]
+        data, target = produce_data_target(sample,inv_or_forw)
         optimizer.zero_grad()
         output = model(data)
         loss = loss_fn(output, target)  # average loss over batch
@@ -46,20 +50,15 @@ def train_model_single_epoch(model, loss_fn, optimizer, train_loader, epoch,inv_
     return avg_loss
 
 
-def evaluate_model(model, loss_fn, data_loader, set,inv_or_forw, save_output = False):
+def evaluate_model(model, loss_fn, data_loader, set,inv_or_forw, return_output = False):
     model.eval()
     all_losses = np.array([])
     with torch.no_grad():
         for idx, sample in enumerate(data_loader):
-            if inv_or_forw == 'forward':
-                data, target = sample[0], sample[1]
-            elif inv_or_forw == 'inverse':
-                data, target = (sample[0], sample[1]), sample[2]
-            elif inv_or_forw == 'inverse_forward':
-                data, target = (sample[0], sample[1]), sample[0]
+            data, target = produce_data_target(sample,inv_or_forw)
             output = model(data)
-            if save_output:
-                torch.save(output, 'output.pth')
+            if return_output:
+                return output,target
             loss = loss_fn(output, target).item()
             all_losses = np.append(all_losses, loss)
     avg_loss = np.mean(all_losses)
@@ -85,7 +84,6 @@ def run_model(model, loss_fn, optimizer, train_loader, val_loader, test_loader, 
         scheduler.step()
         val_loss, val_loss_std = evaluate_model(model, loss_fn, val_loader, set='Validation',inv_or_forw=inv_or_forw)
         train_loss, train_loss_std = evaluate_model(model, loss_fn, train_loader, set='Train',inv_or_forw=inv_or_forw)
-
         train_losses.append(train_loss)
         train_losses_std.append(train_loss_std)
         val_losses.append(val_loss)

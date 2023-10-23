@@ -12,16 +12,20 @@ import trainer
 import losses
 from models import baseline_regressor, inverse_hypernet
 import random
+import pytorch_msssim
 
 def create_dataloader(gamma, radiation, params_scaled, batch_size, device,inv_or_forw = 'inverse'):
+    gamma = downsample_gamma(gamma, 4)
     gamma = torch.tensor(gamma).to(device).float()
     radiation = torch.tensor(radiation).to(device).float()
     params_scaled = torch.tensor(params_scaled).to(device).float()
     if inv_or_forw == 'inverse':
         dataset = torch.utils.data.TensorDataset(gamma, radiation, params_scaled)
-    elif inv_or_forw == 'forward':
+    elif inv_or_forw == 'forward_gamma':
         dataset = torch.utils.data.TensorDataset(params_scaled, gamma)
-    elif inv_or_forw == 'inverse_forward':
+    elif inv_or_forw == 'forward_radiation':
+        dataset = torch.utils.data.TensorDataset(params_scaled, downsample_radiation(radiation,rates=[4,2]))
+    elif inv_or_forw == 'inverse_forward_gamma' or inv_or_forw == 'inverse_forward_GammaRad':
         dataset = torch.utils.data.TensorDataset(gamma, radiation)
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
     return data_loader
@@ -164,6 +168,13 @@ def downsample_radiation(radiation,rates):
     first_dim_rate, second_dim_rate = rates
     radiation_downsampled = radiation[:,:,::first_dim_rate,::second_dim_rate]
     return radiation_downsampled
+def normalize_radiation(radiation,rad_range=[-55,5]):
+    min_val,max_val = rad_range[0],rad_range[1]
+    radiation_mag = radiation[:,:int(radiation.shape[1]/2)]
+    radiation_mag = np.clip(radiation_mag,min_val,max_val)
+    radiation_mag = (radiation_mag - min_val)/(max_val - min_val)
+    radiation[:,:int(radiation.shape[1]/2)] = radiation_mag
+    return radiation
 
 def convert_dataset_to_dB(data):
     train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
@@ -200,8 +211,83 @@ def reorganize_data(data):
                 parameters_val=val_params_new,gamma_val=val_gamma_new,radiation_val=val_radiation_new,
                 parameters_test=test_params_new,gamma_test=test_gamma_new,radiation_test=test_radiation_new)
 
+def produce_stats_gamma(GT_gamma,predicted_gamma,dataset_type='linear'):
+    if dataset_type=='linear':
+        GT_gamma[:,:int(GT_gamma.shape[1]/2)] = 10*np.log10(GT_gamma[:,:int(GT_gamma.shape[1]/2)])
+    if dataset_type=='dB':
+        pass
+    if type(predicted_gamma) == tuple:
+        GT_gamma,_ = GT_gamma
+        predicted_gamma,_ = predicted_gamma
+    predicted_gamma_mag,GT_gamma_mag = predicted_gamma[:,:int(predicted_gamma.shape[1]/2)], GT_gamma[:,:int(GT_gamma.shape[1]/2)]
+    predicted_gamma_phase,GT_gamma_phase = predicted_gamma[:,int(predicted_gamma.shape[1]/2):], GT_gamma[:,int(GT_gamma.shape[1]/2):]
+    pred_gamma_dB = 10*np.log10(predicted_gamma_mag)
+    diff_dB = torch.abs(pred_gamma_dB - GT_gamma_mag)
+    avg_diff = torch.mean(diff_dB).item()
+    avg_max_diff = torch.mean(torch.max(diff_dB,dim=1)[0]).item()
+    diff_phase = predicted_gamma_phase - GT_gamma_phase
+    while len(torch.where(diff_phase > np.pi)[0]) > 0 or len(torch.where(diff_phase < -np.pi)[0]) > 0:
+        diff_phase[torch.where(diff_phase > np.pi)] -= 2 * np.pi
+        diff_phase[torch.where(diff_phase < -np.pi)] += 2 * np.pi
+    avg_diff_phase = torch.mean(torch.abs(diff_phase)).item()
+    avg_max_diff_phase = torch.mean(torch.max(torch.abs(diff_phase),dim=1)[0]).item()
+    print('gamma- ' + dataset_type + ' dataset - Avg diff: {:.4f} dB, Avg max diff: {:.4f} dB, Avg diff phase: {:.4f} rad, Avg max diff phase: {:.4f} rad'
+           .format(avg_diff,avg_max_diff,avg_diff_phase,avg_max_diff_phase))
+
+    return avg_diff, avg_max_diff
+
+def produce_radiation_stats(predicted_radiation,gt_radiation):
+    if type(predicted_radiation) == tuple:
+        _,predicted_radiation = predicted_radiation
+        _,gt_radiation = gt_radiation
+    sep = predicted_radiation.shape[1]//2
+    pred_rad_mag,gt_rad_mag = predicted_radiation[:,:sep],gt_radiation[:,:sep]
+    pred_rad_phase,gt_rad_phase = predicted_radiation[:,sep:],gt_radiation[:,sep:]
+    diff_mag = torch.abs(pred_rad_mag - gt_rad_mag)
+    diff_phase = pred_rad_phase - gt_rad_phase
+    while len(torch.where(diff_phase > np.pi)[0]) > 0 or len(torch.where(diff_phase < -np.pi)[0]) > 0:
+        diff_phase[torch.where(diff_phase > np.pi)] -= 2 * np.pi
+        diff_phase[torch.where(diff_phase < -np.pi)] += 2 * np.pi
+    mean_abs_error_mag = torch.mean(torch.abs(diff_mag)).item()
+    mean_max_error_mag = torch.mean(torch.amax(diff_mag,dim=(1,2,3))[0]).item()
+    mean_abs_error_phase = torch.mean(torch.abs(diff_phase)).item()
+    mean_max_error_phase = torch.mean(torch.amax(diff_phase,dim=(1,2,3))[0]).item()
+    msssim_mag = pytorch_msssim.msssim(pred_rad_mag,gt_rad_mag).item()
+    # print all the stats for prnt variant as one print statement
+    print('Radiation - mean_abs_error_mag:',round(mean_abs_error_mag,4),' dB, mean_max_error_mag:',round(mean_max_error_mag,4)
+          ,' dB, mean_abs_error_phase:',round(mean_abs_error_phase,4),' rad, mean_max_error_phase:',round(mean_max_error_phase,4)
+          ,' rad, msssim_mag:',round(msssim_mag,4))
+
+
 if __name__=="__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    data = np.load(r'../AntennaDesign_data/data_dB.npz')
+    train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
+    val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
+    test_params, test_gamma, test_radiation = data['parameters_test'], data['gamma_test'], data['radiation_test']
+    scaler = standard_scaler()
+    scaler.fit(train_params)
+    train_params_scaled = scaler.forward(train_params)
+    val_params_scaled = scaler.forward(val_params)
+    test_params_scaled = scaler.forward(test_params)
+    loss = losses.gamma_loss_dB()
+    forward_net = baseline_regressor.small_deeper_baseline_forward_model()
+    forward_net.load_state_dict(torch.load('FORWARD_small_10layers_dB_linpred.pth'))
+    test_loader = create_dataloader(test_gamma,test_radiation,test_params_scaled,test_gamma.shape[0],device,inv_or_forw='forward')
+    predictions = trainer.evaluate_model(forward_net,loss,test_loader,'test','forward',return_output=True)
+    loss_value_dB,avg_magdiff_dB,avg_max_magdiff_dB = produce_stats_gamma(torch.tensor(test_gamma).to(device).float(),predictions,loss,dataset_type='dB')
+    predictions[:,:predictions.shape[1]//2] = 10*np.log10(predictions[:,:predictions.shape[1]//2]) # convert to dB
+    sample = 170
+    test_gamma_output_sample = predictions[sample].detach().cpu().numpy()
+    plt.plot(np.arange(len(test_gamma_output_sample)), test_gamma_output_sample, 'b', label='reconstructed gamma')
+    plt.plot(np.arange(len(val_gamma[sample])),val_gamma[sample],'r',label='true gamma')
+    plt.plot(np.ones(20)*0.5*val_gamma.shape[1],np.arange(-1,1,0.1),'k--')
+    plt.title(' GT gamma VS reconstructed gamma, sample #'+str(sample)+' magnitude log scale, first method')
+    # geometry_loss = nn.HuberLoss()
+    # test_loader_inverse = create_dataloader(test_gamma, test_radiation, test_params_scaled, 1, device,inv_or_forw='inverse')
+    # trainer.evaluate_model(inverse_net_concat.inverse_module,geometry_loss,test_loader_inverse,'test','inverse')
+    plt.legend()
+    plt.figure()
     data = np.load(r'../AntennaDesign_data/data.npz')
     train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
     val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
@@ -216,24 +302,22 @@ if __name__=="__main__":
     train_params_scaled = scaler.forward(train_params)
     val_params_scaled = scaler.forward(val_params)
     test_params_scaled = scaler.forward(test_params)
-    loss = losses.gamma_loss()
-    nn_loss_backward = nearest_neighbor_loss(loss,train_gamma,train_params_scaled,test_gamma,test_params_scaled)
-    nn_loss_forward = nearest_neighbor_loss(loss,train_params_scaled,train_gamma,val_params_scaled,val_gamma)
-    print('NN loss backward: ',nn_loss_backward.item())
-    print('NN loss forward: ',nn_loss_forward.item())
-    inverse_net_concat = inverse_hypernet.inverse_forward_concat()
-    inverse_net_concat.inverse_module.load_state_dict(torch.load('INVERSE_small_gammasloss_forward10layers.pth'))
-    inverse_net_concat.forward_module.load_state_dict(torch.load('FORWARD_small_gamma_loss_10layers.pth'))
-    test_loader = create_dataloader(test_gamma,test_radiation,test_params_scaled,test_gamma.shape[0],device,inv_or_forw='inverse_forward')
-    test_gamma_output = torch.load('output_gamma_concat.pth')
-    sample = 60
-    test_gamma_output_sample = test_gamma_output[sample]
+    loss = losses.gamma_loss_dB()
+    forward_net = baseline_regressor.small_deeper_baseline_forward_model()
+    forward_net.load_state_dict(torch.load('FORWARD_small_gamma_loss_10layers.pth'))
+    test_loader = create_dataloader(test_gamma, test_radiation, test_params_scaled, test_gamma.shape[0], device,
+                                    inv_or_forw='forward')
+    predictions = trainer.evaluate_model(forward_net,loss,test_loader,'test','forward',return_output=True)
+    loss_value_lin,avg_magdiff_lin,avg_max_magdiff_lin = produce_stats_gamma(torch.tensor(test_gamma).to(device).float(), predictions, loss, dataset_type='linear')
+    test_gamma_output_sample = predictions[sample].detach().cpu().numpy()
+    test_gamma_output_sample[:test_gamma_output_sample.shape[0]//2] = 10*np.log10(test_gamma_output_sample[:test_gamma_output_sample.shape[0]//2])
+    val_gamma[sample,:test_gamma_output_sample.shape[0]//2] = 10*np.log10(val_gamma[sample,:test_gamma_output_sample.shape[0]//2])
     plt.plot(np.arange(len(test_gamma_output_sample)), test_gamma_output_sample, 'b', label='reconstructed gamma')
-    plt.plot(np.arange(len(test_gamma[sample])),test_gamma[sample],'r',label='true gamma')
-    plt.plot(np.ones(20)*0.5*test_gamma.shape[1],np.arange(-1,1,0.1),'k--')
-    plt.title(' GT gamma VS reconstructed gamma, sample #'+str(sample))
-    geometry_loss = nn.HuberLoss()
-    test_loader_inverse = create_dataloader(test_gamma, test_radiation, test_params_scaled, 1, device,inv_or_forw='inverse')
-    trainer.evaluate_model(inverse_net_concat.inverse_module,geometry_loss,test_loader_inverse,'test','inverse')
+    plt.plot(np.arange(len(val_gamma[sample])),val_gamma[sample],'r',label='true gamma')
+    plt.plot(np.ones(20)*0.5*val_gamma.shape[1],np.arange(-1,1,0.1),'k--')
+    plt.title(' GT gamma VS reconstructed gamma, sample #'+str(sample)+' magnitude log scale, second method')
+    # geometry_loss = nn.HuberLoss()
+    # test_loader_inverse = create_dataloader(test_gamma, test_radiation, test_params_scaled, 1, device,inv_or_forw='inverse')
+    # trainer.evaluate_model(inverse_net_concat.inverse_module,geometry_loss,test_loader_inverse,'test','inverse')
     plt.legend()
     plt.show()

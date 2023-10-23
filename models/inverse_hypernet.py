@@ -81,16 +81,23 @@ class inverse_radiation_hyper(nn.Module):
         self.relu = nn.ELU()
         self.dropout = nn.Dropout(p=p_drop)
         self.maxpool = nn.MaxPool2d(kernel_size=2,stride=2)
-        self.hyper_fc_shapes = [(435,12)]
+        self.hyper_fc_shapes = [(64,32),(32,32),(32,12)]
         self.radiation_backbone = nn.Sequential(resnet.ResNetBasicBlock(4,16),resnet.ResNetBasicBlock(16,16),resnet.ResNetBasicBlock(16,16),resnet.ResNetBasicBlock(16,16),
                                                 nn.Conv2d(16,32,kernel_size=3),nn.BatchNorm2d(32),self.relu,self.maxpool,
-                                                nn.Conv2d(32,128,kernel_size=3),nn.BatchNorm2d(128),self.relu,self.maxpool,
+                                                nn.Conv2d(32,64,kernel_size=3),nn.BatchNorm2d(64),self.relu,self.maxpool,
+                                                nn.Conv2d(64,128,kernel_size=3),nn.BatchNorm2d(128),self.relu,self.maxpool,
                                                 nn.Conv2d(128,256,kernel_size=3),nn.BatchNorm2d(256),self.relu,self.maxpool,
-                                                nn.Conv2d(256,512,kernel_size=3),nn.BatchNorm2d(512),self.relu,self.maxpool,
-                                                nn.Conv2d(512,750,kernel_size=3))
-        self.fc1 = nn.Linear(2002,800)
-        self.fc2 = nn.Linear(800,435)
-        self.init_weights(weight_range)
+                                                nn.Conv2d(256,512,kernel_size=3),nn.BatchNorm2d(512))
+        total_parameters = 0
+        for i,fc_shape in enumerate(self.hyper_fc_shapes):
+            in_size,out_size = fc_shape
+            cnt = in_size*out_size + out_size*2
+            total_parameters += cnt
+        self.radiation_hyper_fc = nn.Linear(3584,total_parameters)
+        self.fcs = nn.Sequential(nn.Linear(502,256),self.relu,self.dropout,
+                                 nn.Linear(256,128),self.relu,self.dropout,
+                                 nn.Linear(128,64))
+        #self.init_weights(weight_range)
 
     def init_weights(self,init_range):
         for p in self.parameters():
@@ -100,8 +107,8 @@ class inverse_radiation_hyper(nn.Module):
         gamma, radiation = input
         radiation_features = self.radiation_backbone(radiation)
         radiation_features = radiation_features.view(-1)
-        x = self.relu(self.fc1(gamma))
-        x = self.relu(self.fc2(x))
+        radiation_features = self.radiation_hyper_fc(radiation_features) # activation needed?
+        x = self.relu(self.fcs(gamma))
         total_parameters = 0
         for i,fc_shape in enumerate(self.hyper_fc_shapes):
             in_size,out_size = fc_shape
@@ -110,11 +117,11 @@ class inverse_radiation_hyper(nn.Module):
             weights = radiation_features[:in_size*out_size].view(out_size,in_size)
             scale = radiation_features[in_size*out_size:in_size*out_size+out_size]
             bias = radiation_features[in_size*out_size+out_size:in_size*out_size+out_size*2]
-        if i == len(self.hyper_fc_shapes)-1:
-            x = self.scaled_linear(weights,scale,bias,input=x)
-        else:
-            x = self.scaled_linear(weights,scale,bias,input=x)
-            x = self.relu(x)
+            if i == len(self.hyper_fc_shapes)-1:
+                x = self.scaled_linear(weights,scale,bias,input=x)
+            else:
+                x = self.scaled_linear(weights,scale,bias,input=x)
+                x = self.relu(x)
 
         return x
 
@@ -124,19 +131,32 @@ class inverse_radiation_hyper(nn.Module):
         return input
 
 class inverse_forward_concat(nn.Module):
-    def __init__(self):
+    def __init__(self,inv_module=None,forw_module=None,forward_weights_path_rad=None,forward_weights_path_gamma=None):
         super(inverse_forward_concat,self).__init__()
-        self.inverse_module = small_inverse_radiation_no_hyper()
-        self.forward_module = baseline_regressor.small_deeper_baseline_forward_model()
+        if inv_module is None:
+            self.inverse_module = small_inverse_radiation_no_hyper()
+        else:
+            self.inverse_module = inv_module
+        if forw_module is None:
+            self.forward_module = baseline_regressor.small_deeper_baseline_forward_model()
+        else:
+            self.forward_module = forw_module
+        if forward_weights_path_rad is not None or forward_weights_path_gamma is not None:
+            self.load_and_freeze_forward((forward_weights_path_rad,forward_weights_path_gamma))
+
 
     def load_and_freeze_forward(self,weights_path):
-        self.forward_module.load_state_dict(torch.load(weights_path))
+        path_rad,path_gamma = weights_path
+        if path_gamma is not None:
+            self.forward_module.gamma_net.load_state_dict(torch.load(path_gamma))
+        if path_rad is not None:
+            self.forward_module.radiation_net.load_state_dict(torch.load(path_rad))
         for param in self.forward_module.parameters():
             param.requires_grad = False
     def forward(self,input):
         geometry = self.inverse_module(input)
-        gamma = self.forward_module(geometry)
-        return gamma
+        gamma,radiation = self.forward_module(geometry)
+        return gamma,radiation
 
 
 
@@ -145,9 +165,8 @@ class inverse_forward_concat(nn.Module):
 
 
 if __name__ == "__main__":
-    model = inverse_radiation_no_hyper()
-    # gamma = torch.randn(1,2002)
-    # radiation = torch.randn(1,4,91,181)
-    # output = model((gamma,radiation))
-    #print model parameters amount
+    model = inverse_radiation_hyper()
+    gamma = torch.randn(1,502)
+    radiation = torch.randn(1,4,91,181)
+    output = model((gamma,radiation))
     print(sum(p.numel() for p in model.parameters() if p.requires_grad))
