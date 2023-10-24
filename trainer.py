@@ -24,6 +24,7 @@ def train_model_single_epoch(model, loss_fn, optimizer, train_loader, epoch,inv_
         optimizer.zero_grad()
         output = model(data)
         loss = loss_fn(output, target)  # average loss over batch
+        running_loss += loss.item()
         if grad_accumulation_step is not None:
             loss = loss / grad_accumulation_step
         loss.backward()
@@ -36,7 +37,7 @@ def train_model_single_epoch(model, loss_fn, optimizer, train_loader, epoch,inv_
             optimizer.step()
             optimizer.zero_grad()
 
-        running_loss += loss.item()
+
         if (idx+1) % num_batches_per_print == 0:
             avg_loss = running_loss / num_batches_per_print
             print('TRAIN Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(epoch, (idx+1) * train_loader.batch_size,
