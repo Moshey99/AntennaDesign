@@ -15,7 +15,7 @@ def arg_parser():
     parser.add_argument('--forward_model_path_gamma', type=str, default=r'checkpoints/FORWARD_small_10layers_dB_linpred.pth')
     parser.add_argument('--forward_model_path_radiation', type=str, default=r'checkpoints/FORWARD_radiation_HuberCyclic_loss_range[-55,5].pth')
     parser.add_argument('--batch_size', type=int, default=20)
-    parser.add_argument('--lr', type=float, default=1e-4, help='initial learning rate')
+    parser.add_argument('--lr', type=float, default=1e-5, help='initial learning rate')
     parser.add_argument('--epochs', type=int, default=70)
     parser.add_argument('--gamma_schedule', type=float, default=0.95, help='gamma decay rate')
     parser.add_argument('--step_size', type=int, default=2, help='step size for gamma decay')
