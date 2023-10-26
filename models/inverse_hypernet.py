@@ -76,7 +76,7 @@ class small_inverse_radiation_no_hyper(nn.Module):
         return x
 
 class inverse_radiation_hyper(nn.Module):
-    def __init__(self, weight_range=0.1, p_drop=0.25):
+    def __init__(self, p_drop=0.25):
         super(inverse_radiation_hyper,self).__init__()
         self.relu = nn.ELU()
         self.dropout = nn.Dropout(p=p_drop)
@@ -94,14 +94,19 @@ class inverse_radiation_hyper(nn.Module):
             cnt = in_size*out_size + out_size*2
             total_parameters += cnt
         self.radiation_hyper_fc = nn.Linear(3584,total_parameters)
+        self.init_weights_hyper(self.radiation_hyper_fc.weight,dj=32,var_e=12.38)
         self.fcs = nn.Sequential(nn.Linear(502,256),self.relu,self.dropout,
                                  nn.Linear(256,128),self.relu,self.dropout,
                                  nn.Linear(128,64))
         #self.init_weights(weight_range)
 
-    def init_weights(self,init_range):
-        for p in self.parameters():
-            p.data.uniform_(-init_range, init_range)
+    def init_weights_hyper(self,weight,dj,var_e):
+        with torch.no_grad():
+            dk = weight.shape[1] # fan_in of last fc hypernetwork layer
+            std = torch.sqrt(1/(dk*dj*var_e))
+            return weight.normal_(0,std)
+
+
 
     def forward(self,input):
         gamma, radiation = input
