@@ -21,9 +21,9 @@ that predicts both gamma and radiation pattern.
  - forward_GammaRad.forward_GammaRad - architecture of forward model for both gamma and radiation pattern.
  - inverse_hypernet.small_inverse_radiation_no_hyper - inverse model
  - inverse_hypernet.inverse_forward_concat - inverse and forward concatenated
-## how to train:
+## How to train:
   - #### training models is done in antenna_training.py . The code receives multiple arguments (data path, hyper-parameters, etc.) and trains model's weights (and saves them, if wanted). In addition, this script plots the value of the loss function VS epochs
-    1. Define the required argument in arg_parser as you wish (by changing the value in "default") or leave them as they are.
+    1. Define the required arguments in arg_parser as you wish (by changing the value in "default") or leave them as they are.
        <img width="572" alt="image" src="https://github.com/Moshey99/AntennaDesign/assets/104683567/a2a107e4-85e0-440a-a326-e8e3c4432484">
     2. Define manually model's architecture and the loss function it will try to minimize. There are various models and loss functions, so recommended for a start to do that:
        ```
@@ -34,6 +34,36 @@ that predicts both gamma and radiation pattern.
            loss_fn = GammaRad_loss(lamda=GammaRad_lambda,rad_phase_fac=rad_phase_fac)
        ```
        that defines the model to be a inverse-forward concatenation with loaded&frozen forward weights, and the loss function to be GammaRad_loss (takes into account both radiation pattern and gamma)
-       - IMPORTANT: the --inv_or_forw argument must match the chosen architecure. In the case above it must be ``` inverse_forward_GammaRad ```.
-         for all the options look into the function create_dataloader in utils.py
-    4. If i
+    - **IMPORTANT**: the --inv_or_forw argument must match the chosen architecure. In the case above it must be ``` inverse_forward_GammaRad ```.
+      for all the options look into the function create_dataloader in utils.py . 
+    3. In the end of the file there is a line of code that saves model weights in "checkpoints" folder ( torch.save(model.state_dict(), ...) ).
+      <img width="555" alt="image" src="https://github.com/Moshey99/AntennaDesign/assets/104683567/c0fd299a-3f48-4daf-ac7b-700b3b7b1af3">
+
+      - if saving the weights is not needed (for example, you do not want to use this model for inference), put this line in comment.
+      - if you want to use it for inference, please choose the name for the file with .pth extension, for example 'checkpoints/INVERSE_GammaRad_concat_HuberCyclic_loss.pth' . the weights will be saved there.
+    4.  Run the file.
+
+## How to evaluate a model:
+ - #### evaluating (in inference time) a model is done in inverse_forward_GammaRad_eval.py ( It is guarenteed to work for inverse-forward concat model that predicts both gamma and radiation. Other models might require slight changes).
+   the script takes gets the weights of the model (as well as data_path, inv_or_forw, etc. Please see arg_parser in this script), and computes several things:
+   a. statistics for the predictions of radiation and gamma (avg and max error, and ms-ssim for radiation) on **all the examples** in the validation/test set.
+      
+      example:
+      <img width="880" alt="image" src="https://github.com/Moshey99/AntennaDesign/assets/104683567/5d3fbd9f-07f4-49a0-8ea9-6064cb5f1afb">
+      
+   **note**: The image is cropped, there should be on the right the value of the MS-SSIM metric in addition.
+   b. the prediction of the spectrum of a given sample from the validation/test set, together with the GT spectrum
+      
+      example:
+      ![image](https://github.com/Moshey99/AntennaDesign/assets/104683567/6e0019c3-d4e0-4320-bda5-9a8a76e1d719)
+   c. The predicted geometry, together with the GT geometry.
+      
+      example:
+      <img width="518" alt="image" src="https://github.com/Moshey99/AntennaDesign/assets/104683567/a248731a-fd5a-4284-9b76-3e6334916a72">
+
+1. Please choose for --model_path the path of the learned weights you with to evaluate. It can be the path of the weight you trained by your own, or pre-trained weights (such as INVERSE_GammaRad_concat_HuberCyclic_loss_lamda1_radphasefac1_lr0.0002_loss0.674.pth that is described in the checkpoints section).
+2. choose --sample (integer between 0 and 1920), --data_path, etc. (look into arg_parser).
+3. Run the file.
+      
+
+
