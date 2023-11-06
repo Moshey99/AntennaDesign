@@ -21,3 +21,19 @@ that predicts both gamma and radiation pattern.
  - forward_GammaRad.forward_GammaRad - architecture of forward model for both gamma and radiation pattern.
  - inverse_hypernet.small_inverse_radiation_no_hyper - inverse model
  - inverse_hypernet.inverse_forward_concat - inverse and forward concatenated
+## how to train:
+  - #### training models is done in antenna_training.py . The code receives multiple arguments (data path, hyper-parameters, etc.) and trains model's weights (and saves them, if wanted). In addition, this script plots the value of the loss function VS epochs
+    1. Define the required argument in arg_parser as you wish (by changing the value in "default") or leave them as they are.
+       <img width="572" alt="image" src="https://github.com/Moshey99/AntennaDesign/assets/104683567/a2a107e4-85e0-440a-a326-e8e3c4432484">
+    2. Define manually model's architecture and the loss function it will try to minimize. There are various models and loss functions, so recommended for a start to do that:
+       ```
+           model = inverse_hypernet.inverse_forward_concat(inv_module=inverse_hypernet.small_inverse_radiation_no_hyper(),
+                                                    forw_module=forward_GammaRad.forward_GammaRad(rad_range=radiation_range),
+                                                    forward_weights_path_rad=args.forward_model_path_radiation,
+                                                    forward_weights_path_gamma=args.forward_model_path_gamma)
+           loss_fn = GammaRad_loss(lamda=GammaRad_lambda,rad_phase_fac=rad_phase_fac)
+       ```
+       that defines the model to be a inverse-forward concatenation with loaded&frozen forward weights, and the loss function to be GammaRad_loss (takes into account both radiation pattern and gamma)
+       - IMPORTANT: the --inv_or_forw argument must match the chosen architecure. In the case above it must be ``` inverse_forward_GammaRad ```.
+         for all the options look into the function create_dataloader in utils.py
+    4. If i
