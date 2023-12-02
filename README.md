@@ -66,7 +66,7 @@ that predicts both gamma and radiation pattern.
 3. Run the file.
 
 ## plot/output details:
-A typical output of ** inverse_forward_GammaRad_eval.py** will look like that:
+A typical output of **inverse_forward_GammaRad_eval.py** will look like that:
 ![image](https://github.com/Moshey99/AntennaDesign/assets/104683567/5b4db931-03a6-4fa9-bc01-63086fa75a45)
 
 - The very right plot evaluates GT vs predicted gamma coefficient. Each is of the size 502, represented as a concatenation of magnitude and then phase, for 251 sampled frequencies. The black dotted line separates visually magnitude values and phase values
