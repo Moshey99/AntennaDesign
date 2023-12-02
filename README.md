@@ -64,6 +64,14 @@ that predicts both gamma and radiation pattern.
 1. Please choose for --model_path the path of the learned weights you with to evaluate. It can be the path of the weight you trained by your own, or pre-trained weights (such as INVERSE_GammaRad_concat_HuberCyclic_loss_lamda1_radphasefac1_lr0.0002_loss0.674.pth that is described in the checkpoints section).
 2. choose --sample (integer between 0 and 1920), --data_path, etc. (look into arg_parser).
 3. Run the file.
+
+## plot/output details:
+A typical output of ** inverse_forward_GammaRad_eval.py** will look like that:
+![image](https://github.com/Moshey99/AntennaDesign/assets/104683567/5b4db931-03a6-4fa9-bc01-63086fa75a45)
+
+- The very right plot evaluates GT vs predicted gamma coefficient. Each is of the size 502, represented as a concatenation of magnitude and then phase, for 251 sampled frequencies.
+- The lower plots evaluates GT (right) vs predicted (left) radiation pattern's magnitude of a certain sample. Each is of the size 46x46, meaning each represents a downsampled angular space.
+- The upper plots evaluates GT (right) vs predicted (left) radiation pattern's phase of a certain sample. Each is of the size 46x46, meaning each represents a downsampled angular space.
       
 
 
