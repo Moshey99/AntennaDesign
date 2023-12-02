@@ -69,9 +69,19 @@ that predicts both gamma and radiation pattern.
 A typical output of ** inverse_forward_GammaRad_eval.py** will look like that:
 ![image](https://github.com/Moshey99/AntennaDesign/assets/104683567/5b4db931-03a6-4fa9-bc01-63086fa75a45)
 
-- The very right plot evaluates GT vs predicted gamma coefficient. Each is of the size 502, represented as a concatenation of magnitude and then phase, for 251 sampled frequencies.
+- The very right plot evaluates GT vs predicted gamma coefficient. Each is of the size 502, represented as a concatenation of magnitude and then phase, for 251 sampled frequencies. The black dotted line separates visually magnitude values and phase values
 - The lower plots evaluates GT (right) vs predicted (left) radiation pattern's magnitude of a certain sample. Each is of the size 46x46, meaning each represents a downsampled angular space.
 - The upper plots evaluates GT (right) vs predicted (left) radiation pattern's phase of a certain sample. Each is of the size 46x46, meaning each represents a downsampled angular space.
+  
+In addition, as mentioned in the evaluation section, the code prints:
+- Results of different statistics/metrics that help for model evaluation and investigation
+- Predicted geometry, that the model finds as the best fit for the spectral input. the geometry represented by a simple 12 elements vector, where each is a dof of the model. The meaning of each element is as following: <img width="327" alt="image" src="https://github.com/Moshey99/AntennaDesign/assets/104683567/31e03fc3-5370-48f0-8e93-fb04b3a0db77"> . There are 9 lengths (3 metals, with 3 changable lengths), width, excitation coordinate dof, and one more dof.
+  
+These vectors define the geometrical configuration of the metals. The next image shows general geometry, and the difference when 'l12' set to two different values (1 and 5).
+
+<img width="578" alt="image" src="https://github.com/Moshey99/AntennaDesign/assets/104683567/0db7d24a-f315-4b9f-9289-5a41013c2776">
+
+
       
 
 
