@@ -3,7 +3,7 @@ import argparse
 import pytorch_msssim
 import utils
 from utils import standard_scaler, create_dataset, split_dataset, create_dataloader
-from models import baseline_regressor, inverse_hypernet, forward_radiation,forward_GammaRad
+from models import baseline_regressor, inverse_hypernet, forward_radiation,forward_GammaRad, inverse_transformer,forward_gamma
 import torch
 import trainer
 import matplotlib.pyplot as plt
@@ -12,19 +12,22 @@ from losses import *
 def arg_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path', type=str, default=r'../AntennaDesign_data/data_dB.npz')
-    parser.add_argument('--forward_model_path_gamma', type=str, default=r'checkpoints/FORWARD_small_10layers_dB_linpred.pth')
-    parser.add_argument('--forward_model_path_radiation', type=str, default=r'checkpoints/FORWARD_radiation_HuberCyclic_loss_range[-55,5].pth')
+    parser.add_argument('--forward_model_path_gamma', type=str, default=r'checkpoints/forward_Gamma_baseline.pth')
+    parser.add_argument('--forward_model_path_radiation', type=str, default=r'checkpoints/forward_radiation_changedhyperparams2.pth')
     parser.add_argument('--batch_size', type=int, default=20)
-    parser.add_argument('--lr', type=float, default=1e-5, help='initial learning rate')
-    parser.add_argument('--epochs', type=int, default=70)
-    parser.add_argument('--gamma_schedule', type=float, default=0.95, help='gamma decay rate')
-    parser.add_argument('--step_size', type=int, default=2, help='step size for gamma decay')
+    parser.add_argument('--lr', type=float, default=1e-3, help='initial learning rate')
+    parser.add_argument('--epochs', type=int, default=290)
+    parser.add_argument('--gamma_schedule', type=float, default=0.9, help='gamma decay rate')
+    parser.add_argument('--step_size', type=int, default=12, help='step size for gamma decay')
     parser.add_argument('--grad_accumulation_step', type=int, default=None, help='gradient accumulation step. Should be None if HyperNet is not used')
-    parser.add_argument('--inv_or_forw', type=str, default='inverse_forward_GammaRad',
+    parser.add_argument('--inv_or_forw', type=str, default='forward_gamma',
     help='architecture name, to parse dataset correctly. options: inverse, forward_gamma, forward_radiation, inverse_forward_gamma, inverse_forward_GammaRad')
     parser.add_argument('--rad_range', type=list, default=[-55,5], help='range of radiation values for scaling')
     parser.add_argument('--GammaRad_lambda', type=float, default=1.0, help='controls the influence of radiation in GammaRad loss')
     parser.add_argument('--rad_phase_factor', type=float, default=1.0, help='controls the influence of radiations phase in GammaRad loss')
+    parser.add_argument('--mag_smooth_weight', type=float, default=1e-4, help='controls the influence of gamma magnitude smoothness')
+    parser.add_argument('--phase_smooth_weight', type=float, default=1e-4, help='controls the influence of gamma phase smoothness')
+    parser.add_argument('--checkpoint_path', type=str, default=r'checkpoints/forward_gamma_smoothness.pth')
     return parser.parse_args()
 
 
@@ -48,25 +51,35 @@ if __name__ == "__main__":
     stp_size,gamma_schedule = args.step_size,args.gamma_schedule
     inv_or_forw = args.inv_or_forw
     GammaRad_lambda,rad_phase_fac = args.GammaRad_lambda,args.rad_phase_factor
+    path = args.checkpoint_path[:-4]+'_'+str(args.mag_smooth_weight)+'_'+str(args.phase_smooth_weight)+'.pth'
     #----------------------
     print('bs=', batch_size, ' step_size=', stp_size)
-    model = inverse_hypernet.inverse_forward_concat(inv_module=inverse_hypernet.small_inverse_radiation_no_hyper(),
-                                                    forw_module=forward_GammaRad.forward_GammaRad(rad_range=radiation_range),
-                                                    forward_weights_path_rad=args.forward_model_path_radiation,
-                                                    forward_weights_path_gamma=args.forward_model_path_gamma)
-    loss_fn = GammaRad_loss(lamda=GammaRad_lambda,rad_phase_fac=rad_phase_fac)
-    # model.load_and_freeze_forward('FORWARD_small_gamma_loss_10layers.pth')
+
+    # model = inverse_hypernet.inverse_forward_concat(inv_module=inverse_hypernet.small_inverse_radiation_no_hyper(),
+    #                                          forw_module=forward_GammaRad.forward_GammaRad(rad_range=radiation_range),
+    #                                          forward_weights_path_rad=args.forward_model_path_radiation,
+    #                                          forward_weights_path_gamma=args.forward_model_path_gamma)
+    # loss_fn = GammaRad_loss(lamda=GammaRad_lambda,rad_phase_fac=rad_phase_fac)
+    model = baseline_regressor.small_deeper_baseline_forward_model()
+    loss_fn = gamma_loss_dB(mag_smooth_weight=args.mag_smooth_weight,phase_smooth_weight=args.phase_smooth_weight)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rates)
     train_loader = create_dataloader(train_gamma, train_radiation, train_params_scaled, batch_size, device,inv_or_forw)
     val_loader = create_dataloader(val_gamma, val_radiation, val_params_scaled, batch_size, device,inv_or_forw)
     test_loader = create_dataloader(test_gamma, test_radiation, test_params_scaled, batch_size, device,inv_or_forw)
     print(f'seccessfully created data loaders for {inv_or_forw} training')
-    train_los, train_los_stds, val_los, val_los_stds,test_loss = trainer.run_model(model, loss_fn, optimizer,
+    train_los, train_los_stds, val_los, val_los_stds,test_loss,best_state_dict,best_val_loss = trainer.run_model(model, loss_fn, optimizer,
                                                                  train_loader, val_loader, test_loader,epochs, stp_size,
                                                                  gamma_schedule,inv_or_forw,
                                                                  grad_accumulation_step=grad_accum_stp)
-
+    print('best model saved for validation loss = ', best_val_loss)
+    print('saving best model')
+    torch.save(best_state_dict, path)
+    args_path = path[:-4] + '_args.txt'
+    with open(args_path, 'w') as args_file:
+        args_file.write(str(args))
+        args_file.write('\n')
+        args_file.write(f'best validation loss = {best_val_loss}')
     plt.figure()
     plt.plot(np.arange(len(val_los)), val_los, label='validation')
     plt.plot(np.arange(len(val_los)), train_los, label='train')
@@ -82,6 +95,4 @@ if __name__ == "__main__":
     plt.xlabel('epoch')
     plt.ylabel('std')
     plt.legend()
-    print('saving best model')
-    #torch.save(model.state_dict(), f'checkpoints/INVERSE_GammaRad_concat_HuberCyclic_loss.pth')
     plt.show()

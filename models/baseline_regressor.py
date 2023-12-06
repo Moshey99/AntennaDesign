@@ -82,6 +82,7 @@ class small_deeper_baseline_forward_model(nn.Module):
         self.linear3 = nn.Sequential(nn.Linear(64, 128),nn.ELU(),nn.Linear(128, 128),nn.ELU())
         self.linear4 = nn.Sequential(nn.Linear(128, 256),nn.ELU(),nn.Linear(256, 256),nn.ELU())
         self.linear5 = nn.Sequential(nn.Linear(256, 502),nn.ELU(),nn.Linear(502, 502))
+        self.alternative_layers = nn.Sequential(nn.Linear(12,64),nn.ELU(),nn.Linear(64,128),nn.ELU(),nn.Linear(128,256),nn.ELU(),nn.Linear(256,502))
         self.sigmoid = nn.Sigmoid()
         self.dropout = nn.Dropout(p=p_dropout)
         #self.init_weights(weight_range)
@@ -90,6 +91,7 @@ class small_deeper_baseline_forward_model(nn.Module):
             p.data.uniform_(-init_range, init_range)
     def forward(self,input): # input is the geometric parameters
         scaled_params = input
+        # output = self.alternative_layers(scaled_params)
         output = self.linear1(scaled_params)
         output = self.linear2(output)
         output = self.linear3(output)

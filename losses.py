@@ -26,32 +26,73 @@ class CircularLoss(nn.Module):
 
 
 class gamma_loss(nn.Module):
-    def __init__(self,delta=1.0):
+    def __init__(self,delta=1.0,smoothness_weight=0):
         super(gamma_loss,self).__init__()
         self.delta = delta
+        self.smooth_loss = self.mag_smoothness_loss(smoothness_weight)
+
+    class mag_smoothness_loss(nn.Module):
+        def __init__(self,weight=0):
+            super(gamma_loss.mag_smoothness_loss,self).__init__()
+            self.weight = weight
+        def forward(self,pred_mag):
+            second_order_absdiff = torch.abs(pred_mag[:,2:] - 2*pred_mag[:,1:-1] + pred_mag[:,:-2])
+            return self.weight*second_order_absdiff.mean()
+
     def forward(self,gamma,target):
         gamma_magnitude = gamma[:,:gamma.shape[1]//2]
+        smooth_loss_mag = self.smooth_loss(gamma_magnitude)
         gamma_phase = gamma[:,gamma.shape[1]//2:]
         target_magnitude = target[:,:target.shape[1]//2]
         target_phase = target[:,target.shape[1]//2:]
         gamma_x,gamma_y = gamma_magnitude*torch.cos(gamma_phase),gamma_magnitude*torch.sin(gamma_phase)
         target_x,target_y = target_magnitude*torch.cos(target_phase),target_magnitude*torch.sin(target_phase)
         diff = torch.abs(gamma_x - target_x) + torch.abs(gamma_y - target_y)
-        loss = torch.where(diff < self.delta, 0.5 * ( torch.square(gamma_x - target_x) + torch.square(gamma_y - target_y) ), self.delta * (diff-0.5*self.delta)).mean()
-        return loss
+        loss = torch.where(diff < self.delta, 0.5 * ( torch.square(gamma_x - target_x) + torch.square(gamma_y - target_y) ),
+                           self.delta * (diff-0.5*self.delta)).mean()
+        return loss + smooth_loss_mag
+
 
 class gamma_loss_dB(nn.Module):
-    def __init__(self):
+    def __init__(self,mag_smooth_weight=0,phase_smooth_weight=0):
         super(gamma_loss_dB,self).__init__()
         self.phase_loss = CircularLoss()
         self.dB_magnitude_loss = nn.HuberLoss()
+        self.smooth_loss_mag = self.mag_smoothness_loss(mag_smooth_weight)
+        self.smooth_loss_phase = self.phase_smoothness_loss(phase_smooth_weight)
+    class mag_smoothness_loss(nn.Module):
+        def __init__(self,weight=0):
+            super(gamma_loss_dB.mag_smoothness_loss,self).__init__()
+            self.weight = weight
+
+        def forward(self, pred_mag):
+            second_order_absdiff = torch.abs(pred_mag[:, 2:] - 2 * pred_mag[:, 1:-1] + pred_mag[:, :-2])
+            return self.weight * second_order_absdiff.mean()
+
+    class phase_smoothness_loss(nn.Module):
+        def __init__(self, weight=0):
+            super(gamma_loss_dB.phase_smoothness_loss, self).__init__()
+            self.weight = weight
+        def forward(self, y_pred):
+
+            circular_diff = y_pred[:, 1:] - y_pred[:, :-1]
+            # Adjust circular differences for values close to a full circle
+            circular_diff = torch.where(torch.abs(circular_diff) > torch.pi,
+                                        2 * torch.pi - torch.abs(circular_diff),circular_diff)
+            circular_diff_second_order = circular_diff[:, 1:] - circular_diff[:, :-1]
+            circular_diff_second_order = torch.where(torch.abs(circular_diff_second_order) > torch.pi,
+                                         2*torch.pi - torch.abs(circular_diff_second_order),circular_diff_second_order)
+            circular_loss = torch.abs(circular_diff_second_order).mean()
+            return self.weight*circular_loss
     def forward(self,pred,target):
         pred_magnitude = 10*torch.log10(pred[:,:pred.shape[1]//2]) # expecting pred in linear scale, convert to dB
+        smooth_loss_mag = self.smooth_loss_mag(pred_magnitude)
         pred_phase = pred[:,pred.shape[1]//2:]
+        smooth_loss_phase = self.smooth_loss_phase(pred_phase)
         target_magnitude = target[:,:target.shape[1]//2] # expecting target in dB
         target_phase = target[:,target.shape[1]//2:]
         loss = self.dB_magnitude_loss(pred_magnitude,target_magnitude) + self.phase_loss(pred_phase,target_phase)
-        return loss
+        return loss+smooth_loss_mag+smooth_loss_phase
 
 class radiation_loss_dB(nn.Module):
     def __init__(self,rad_phase_factor=1.0):

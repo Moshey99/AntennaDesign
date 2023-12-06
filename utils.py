@@ -39,7 +39,7 @@ def nearest_neighbor_loss(loss_fn,x_train,y_train, x_val, y_val, k=1):
     return loss
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-def split_dataset(dataset_path= r'C:\Users\moshey\PycharmProjects\etof_folder_git\AntennaDesign_data', train_val_test_split = [0.6,0.2, 0.2]):
+def split_dataset(dataset_path= r'C:\Users\moshey\PycharmProjects\etof_folder_git\AntennaDesign_data', train_val_test_split = [0.8,0.1, 0.1]):
     folders = listdir(dataset_path)
     dataset_path_list = []
 

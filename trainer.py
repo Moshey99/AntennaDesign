@@ -2,6 +2,8 @@ import torch
 import torch.optim.lr_scheduler as lr_scheduler
 import numpy as np
 import utils
+import copy
+
 #from losses import *
 
 def produce_data_target(sample,inv_or_forw):
@@ -59,7 +61,19 @@ def evaluate_model(model, loss_fn, data_loader, set,inv_or_forw, return_output =
             data, target = produce_data_target(sample,inv_or_forw)
             output = model(data)
             if return_output:
-                return output,target
+                if data_loader.batch_size != 1:
+                    return output,target
+                else:
+                    if idx == 0:
+                        all_output0,all_output1 = output[0],output[1]
+                        all_target0,all_target1 = target[0],target[1]
+                    else:
+                        all_output0 = torch.cat((all_output0, output[0]), dim=0)
+                        all_output1 = torch.cat((all_output1, output[1]), dim=0)
+                        all_target0 = torch.cat((all_target0, target[0]), dim=0)
+                        all_target1 = torch.cat((all_target1, target[1]), dim=0)
+                        if idx == len(data_loader)-1:
+                            return (all_output0,all_output1),(all_target0,all_target1)
             loss = loss_fn(output, target).item()
             all_losses = np.append(all_losses, loss)
     avg_loss = np.mean(all_losses)
@@ -68,10 +82,13 @@ def evaluate_model(model, loss_fn, data_loader, set,inv_or_forw, return_output =
     return avg_loss, std_loss
 
 
+
+
 def run_model(model, loss_fn, optimizer, train_loader, val_loader, test_loader, epochs, schedule_step, gamma,inv_or_forw,grad_accumulation_step = None,clip_norm = 1):
     train_losses, train_losses_std, val_losses, val_losses_std = [], [], [], []
     # before training:
     val_loss, val_loss_std = evaluate_model(model, loss_fn, val_loader, set='Validation',inv_or_forw=inv_or_forw)
+    best_loss = val_loss
     train_loss, train_loss_std = evaluate_model(model, loss_fn, train_loader, set='Train',inv_or_forw=inv_or_forw)
     train_losses.append(train_loss)
     train_losses_std.append(train_loss_std)
@@ -84,10 +101,13 @@ def run_model(model, loss_fn, optimizer, train_loader, val_loader, test_loader, 
         _ = train_model_single_epoch(model, loss_fn, optimizer, train_loader, epoch,inv_or_forw, grad_accumulation_step,clip_norm)
         scheduler.step()
         val_loss, val_loss_std = evaluate_model(model, loss_fn, val_loader, set='Validation',inv_or_forw=inv_or_forw)
+        if val_loss < best_loss:
+            best_loss = val_loss
+            best_state_dict = copy.deepcopy(model.state_dict())
         train_loss, train_loss_std = evaluate_model(model, loss_fn, train_loader, set='Train',inv_or_forw=inv_or_forw)
         train_losses.append(train_loss)
         train_losses_std.append(train_loss_std)
         val_losses.append(val_loss)
         val_losses_std.append(val_loss_std)
     test_loss, _ = evaluate_model(model, loss_fn, test_loader, set='Test',inv_or_forw=inv_or_forw)
-    return train_losses, train_losses_std, val_losses, val_losses_std, test_loss
+    return train_losses, train_losses_std, val_losses, val_losses_std, test_loss, best_state_dict, best_loss
