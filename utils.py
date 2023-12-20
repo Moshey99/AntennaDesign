@@ -39,10 +39,10 @@ def nearest_neighbor_loss(loss_fn,x_train,y_train, x_val, y_val, k=1):
     return loss
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-def split_dataset(dataset_path= r'C:\Users\moshey\PycharmProjects\etof_folder_git\AntennaDesign_data', train_val_test_split = [0.8,0.1, 0.1]):
+def split_dataset(dataset_path, train_val_test_split ):
     folders = listdir(dataset_path)
     dataset_path_list = []
-
+    folders = [folder for folder in folders if folder[:4]=='wifi']
     for folder in folders:
         folder_path = join(dataset_path, folder)
         files = listdir(folder_path)
@@ -68,7 +68,8 @@ def split_dataset(dataset_path= r'C:\Users\moshey\PycharmProjects\etof_folder_gi
     val_dataset_path_list = dataset_path_list[val_pick]
     test_dataset_path_list = dataset_path_list[test_pick]
     return train_dataset_path_list, val_dataset_path_list, test_dataset_path_list
-def create_dataset(dataset_path_list_train,dataset_path_list_val,dataset_path_list_test):
+def create_dataset(dataset_path= r'C:\Users\moshey\PycharmProjects\etof_folder_git\AntennaDesign_data', train_val_test_split = [0.8,0.1, 0.1]):
+    dataset_path_list_train, dataset_path_list_val, dataset_path_list_test = split_dataset(dataset_path, train_val_test_split)
     print('Creating dataset...')
     data_parameters_train,data_parameters_val,data_parameters_test = [],[],[]
     data_gamma_train,data_gamma_val,data_gamma_test = [],[],[]
@@ -116,11 +117,11 @@ def create_dataset(dataset_path_list_train,dataset_path_list_val,dataset_path_li
         data_parameters_test.append(parameters)
         data_gamma_test.append(gamma)
 
-    np.savez('data_new.npz',parameters_train=np.array(data_parameters_train),gamma_train=np.array(data_gamma_train),
+    np.savez(dataset_path+'\\newdata.npz',parameters_train=np.array(data_parameters_train),gamma_train=np.array(data_gamma_train),
              radiation_train=np.array(data_radiation_train),parameters_val=np.array(data_parameters_val),
              gamma_val=np.array(data_gamma_val),radiation_val=np.array(data_radiation_val),parameters_test=np.array(data_parameters_test),
              gamma_test=np.array(data_gamma_test),radiation_test=np.array(data_radiation_test))
-    print('Dataset created seccessfully. Saved in data_new.npz')
+    print(f'Dataset created seccessfully. Saved in newdata.npz')
 class standard_scaler():
     def __init__(self):
         self.mean = None
@@ -177,6 +178,7 @@ def normalize_radiation(radiation,rad_range=[-55,5]):
     return radiation
 
 def convert_dataset_to_dB(data):
+    print('Converting dataset to dB')
     train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
     val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
     test_params, test_gamma, test_radiation = data['parameters_test'], data['gamma_test'], data['radiation_test']
@@ -186,9 +188,10 @@ def convert_dataset_to_dB(data):
     train_radiation[:,:int(train_radiation.shape[1]/2)] = 10*np.log10(train_radiation[:,:int(train_radiation.shape[1]/2)])
     val_radiation[:,:int(val_radiation.shape[1]/2)] = 10*np.log10(val_radiation[:,:int(val_radiation.shape[1]/2)])
     test_radiation[:,:int(test_radiation.shape[1]/2)] = 10*np.log10(test_radiation[:,:int(test_radiation.shape[1]/2)])
-    np.savez('data_dB.npz',parameters_train=train_params,gamma_train=train_gamma,radiation_train=train_radiation,
-                parameters_val=val_params,gamma_val=val_gamma,radiation_val=val_radiation,
-                parameters_test=test_params,gamma_test=test_gamma,radiation_test=test_radiation)
+    np.savez(r'C:\Users\moshey\PycharmProjects\etof_folder_git\AntennaDesign_data\newdata_dB.npz',
+              parameters_train=train_params,gamma_train=train_gamma,radiation_train=train_radiation,
+              parameters_val=val_params,gamma_val=val_gamma,radiation_val=val_radiation,
+              parameters_test=test_params,gamma_test=test_gamma,radiation_test=test_radiation)
     print('Dataset converted to dB. Saved in data_dB.npz')
 
 def reorganize_data(data):
@@ -223,6 +226,8 @@ def produce_stats_gamma(GT_gamma,predicted_gamma,dataset_type='linear'):
     predicted_gamma_phase,GT_gamma_phase = predicted_gamma[:,int(predicted_gamma.shape[1]/2):], GT_gamma[:,int(GT_gamma.shape[1]/2):]
     pred_gamma_dB = 10*np.log10(predicted_gamma_mag)
     diff_dB = torch.abs(pred_gamma_dB - GT_gamma_mag)
+    respective_diff = torch.where(torch.abs(GT_gamma_mag) > 1.5, torch.div( diff_dB, torch.abs(GT_gamma_mag) ) * 100,0)
+    respective_diff = torch.mean(respective_diff[torch.nonzero(respective_diff,as_tuple=True)]).item()
     avg_diff = torch.mean(diff_dB).item()
     avg_max_diff = torch.mean(torch.max(diff_dB,dim=1)[0]).item()
     diff_phase = predicted_gamma_phase - GT_gamma_phase
@@ -231,8 +236,9 @@ def produce_stats_gamma(GT_gamma,predicted_gamma,dataset_type='linear'):
         diff_phase[torch.where(diff_phase < -np.pi)] += 2 * np.pi
     avg_diff_phase = torch.mean(torch.abs(diff_phase)).item()
     avg_max_diff_phase = torch.mean(torch.max(torch.abs(diff_phase),dim=1)[0]).item()
-    print('gamma- ' + dataset_type + ' dataset - Avg diff: {:.4f} dB, Avg max diff: {:.4f} dB, Avg diff phase: {:.4f} rad, Avg max diff phase: {:.4f} rad'
-           .format(avg_diff,avg_max_diff,avg_diff_phase,avg_max_diff_phase))
+    print('gamma- ' + dataset_type + ' dataset - Avg diff: {:.4f} dB, Avg dB respective diff: {:.4f} % ,'
+                                     ' Avg max diff: {:.4f} dB, Avg diff phase: {:.4f} rad, Avg max diff phase: {:.4f} rad'
+           .format(avg_diff,respective_diff,avg_max_diff,avg_diff_phase,avg_max_diff_phase))
 
     return avg_diff, avg_max_diff
 
@@ -244,6 +250,8 @@ def produce_radiation_stats(predicted_radiation,gt_radiation):
     pred_rad_mag,gt_rad_mag = predicted_radiation[:,:sep],gt_radiation[:,:sep]
     pred_rad_phase,gt_rad_phase = predicted_radiation[:,sep:],gt_radiation[:,sep:]
     diff_mag = torch.abs(pred_rad_mag - gt_rad_mag)
+    respective_diff = torch.where(torch.abs(gt_rad_mag) > 1.5, torch.div( diff_mag, torch.abs(gt_rad_mag) ) * 100,0)
+    respective_diff = torch.mean(respective_diff[torch.nonzero(respective_diff,as_tuple=True)]).item()
     diff_phase = pred_rad_phase - gt_rad_phase
     while len(torch.where(diff_phase > np.pi)[0]) > 0 or len(torch.where(diff_phase < -np.pi)[0]) > 0:
         diff_phase[torch.where(diff_phase > np.pi)] -= 2 * np.pi
@@ -254,70 +262,15 @@ def produce_radiation_stats(predicted_radiation,gt_radiation):
     mean_max_error_phase = torch.mean(torch.amax(diff_phase,dim=(1,2,3))[0]).item()
     msssim_mag = pytorch_msssim.msssim(pred_rad_mag,gt_rad_mag).item()
     # print all the stats for prnt variant as one print statement
-    print('Radiation - mean_abs_error_mag:',round(mean_abs_error_mag,4),' dB, mean_max_error_mag:',round(mean_max_error_mag,4)
+    print('Radiation - mean_abs_error_mag:',round(mean_abs_error_mag,4),' dB, mean dB respective error: ',round(respective_diff,4)
+          ,'%, mean_max_error_mag:',round(mean_max_error_mag,4)
           ,' dB, mean_abs_error_phase:',round(mean_abs_error_phase,4),' rad, mean_max_error_phase:',round(mean_max_error_phase,4)
           ,' rad, msssim_mag:',round(msssim_mag,4))
 
 
 if __name__=="__main__":
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    data = np.load(r'../AntennaDesign_data/data_dB.npz')
-    train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
-    val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
-    test_params, test_gamma, test_radiation = data['parameters_test'], data['gamma_test'], data['radiation_test']
-    scaler = standard_scaler()
-    scaler.fit(train_params)
-    train_params_scaled = scaler.forward(train_params)
-    val_params_scaled = scaler.forward(val_params)
-    test_params_scaled = scaler.forward(test_params)
-    loss = losses.gamma_loss_dB()
-    forward_net = baseline_regressor.small_deeper_baseline_forward_model()
-    forward_net.load_state_dict(torch.load('FORWARD_small_10layers_dB_linpred.pth'))
-    test_loader = create_dataloader(test_gamma,test_radiation,test_params_scaled,test_gamma.shape[0],device,inv_or_forw='forward')
-    predictions = trainer.evaluate_model(forward_net,loss,test_loader,'test','forward',return_output=True)
-    loss_value_dB,avg_magdiff_dB,avg_max_magdiff_dB = produce_stats_gamma(torch.tensor(test_gamma).to(device).float(),predictions,loss,dataset_type='dB')
-    predictions[:,:predictions.shape[1]//2] = 10*np.log10(predictions[:,:predictions.shape[1]//2]) # convert to dB
-    sample = 170
-    test_gamma_output_sample = predictions[sample].detach().cpu().numpy()
-    plt.plot(np.arange(len(test_gamma_output_sample)), test_gamma_output_sample, 'b', label='reconstructed gamma')
-    plt.plot(np.arange(len(val_gamma[sample])),val_gamma[sample],'r',label='true gamma')
-    plt.plot(np.ones(20)*0.5*val_gamma.shape[1],np.arange(-1,1,0.1),'k--')
-    plt.title(' GT gamma VS reconstructed gamma, sample #'+str(sample)+' magnitude log scale, first method')
-    # geometry_loss = nn.HuberLoss()
-    # test_loader_inverse = create_dataloader(test_gamma, test_radiation, test_params_scaled, 1, device,inv_or_forw='inverse')
-    # trainer.evaluate_model(inverse_net_concat.inverse_module,geometry_loss,test_loader_inverse,'test','inverse')
-    plt.legend()
-    plt.figure()
-    data = np.load(r'../AntennaDesign_data/data.npz')
-    train_params, train_gamma, train_radiation = data['parameters_train'], data['gamma_train'], data['radiation_train']
-    val_params, val_gamma, val_radiation = data['parameters_val'], data['gamma_val'], data['radiation_val']
-    test_params, test_gamma, test_radiation = data['parameters_test'], data['gamma_test'], data['radiation_test']
-    #--- for small model ---
-    train_gamma = downsample_gamma(train_gamma,4)
-    val_gamma = downsample_gamma(val_gamma,4)
-    test_gamma = downsample_gamma(test_gamma,4)
-    #--- for small model ---
-    scaler = standard_scaler()
-    scaler.fit(train_params)
-    train_params_scaled = scaler.forward(train_params)
-    val_params_scaled = scaler.forward(val_params)
-    test_params_scaled = scaler.forward(test_params)
-    loss = losses.gamma_loss_dB()
-    forward_net = baseline_regressor.small_deeper_baseline_forward_model()
-    forward_net.load_state_dict(torch.load('FORWARD_small_gamma_loss_10layers.pth'))
-    test_loader = create_dataloader(test_gamma, test_radiation, test_params_scaled, test_gamma.shape[0], device,
-                                    inv_or_forw='forward')
-    predictions = trainer.evaluate_model(forward_net,loss,test_loader,'test','forward',return_output=True)
-    loss_value_lin,avg_magdiff_lin,avg_max_magdiff_lin = produce_stats_gamma(torch.tensor(test_gamma).to(device).float(), predictions, loss, dataset_type='linear')
-    test_gamma_output_sample = predictions[sample].detach().cpu().numpy()
-    test_gamma_output_sample[:test_gamma_output_sample.shape[0]//2] = 10*np.log10(test_gamma_output_sample[:test_gamma_output_sample.shape[0]//2])
-    val_gamma[sample,:test_gamma_output_sample.shape[0]//2] = 10*np.log10(val_gamma[sample,:test_gamma_output_sample.shape[0]//2])
-    plt.plot(np.arange(len(test_gamma_output_sample)), test_gamma_output_sample, 'b', label='reconstructed gamma')
-    plt.plot(np.arange(len(val_gamma[sample])),val_gamma[sample],'r',label='true gamma')
-    plt.plot(np.ones(20)*0.5*val_gamma.shape[1],np.arange(-1,1,0.1),'k--')
-    plt.title(' GT gamma VS reconstructed gamma, sample #'+str(sample)+' magnitude log scale, second method')
-    # geometry_loss = nn.HuberLoss()
-    # test_loader_inverse = create_dataloader(test_gamma, test_radiation, test_params_scaled, 1, device,inv_or_forw='inverse')
-    # trainer.evaluate_model(inverse_net_concat.inverse_module,geometry_loss,test_loader_inverse,'test','inverse')
-    plt.legend()
-    plt.show()
+    import time
+    # create_dataset()
+    # time.sleep(10)
+    data = np.load(r'C:\Users\moshey\PycharmProjects\etof_folder_git\AntennaDesign_data\newdata.npz')
+    convert_dataset_to_dB(data)

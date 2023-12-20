@@ -10,8 +10,8 @@ import scipy.io as sio
 def arg_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path', type=str, default=r'../AntennaDesign_data/newdata_dB.npz')
-    parser.add_argument('--model_path', type=str, default='checkpoints/forward_gamma_smoothness_0.001_0.001.pth')
-    parser.add_argument('--inv_or_forw', type=str, default='forward_gamma',
+    parser.add_argument('--model_path', type=str, default='checkpoints/forward_radiation_huberloss.pth')
+    parser.add_argument('--inv_or_forw', type=str, default='forward_radiation',
     help='architecture name, to parse dataset correctly. options: inverse, forward_gamma, forward_radiation, inverse_forward_gamma, inverse_forward_GammaRad')
     parser.add_argument('--sample', type=int, default=180, help='sample to plot its output, from test set')
 
@@ -42,8 +42,8 @@ def main():
     inv_or_forw = args.inv_or_forw
     sample = args.sample
     #---------------
-    model = baseline_regressor.small_deeper_baseline_forward_model()
-    loss_fn = gamma_loss_dB(mag_smooth_weight=1e-3,phase_smooth_weight=1e-3)
+    model = forward_radiation.Radiation_Generator([-55,5])
+    loss_fn = None
     model.to(device)
     model.load_state_dict(torch.load(args.model_path,map_location=device))
     scaler = standard_scaler()
@@ -56,21 +56,26 @@ def main():
     predicted_spectrums,gt_spectrums = trainer.evaluate_model(model, loss_fn, test_loader, 'test', inv_or_forw, return_output=True)
     #---
 
-    pred_gamma = predicted_spectrums
-    GT_gamma = gt_spectrums
-    produce_stats_gamma(gt_spectrums, predicted_spectrums,'dB')
+    pred_radiation = predicted_spectrums
+    GT_radiation = gt_spectrums
+    produce_radiation_stats(gt_spectrums, predicted_spectrums)
     prnt = inv_or_forw
-    pred_gamma_sample = pred_gamma[sample].cpu().detach().numpy()
-    pred_gamma_sample[:int(0.5 * GT_gamma.shape[1])] = 10*np.log10(pred_gamma_sample[:int(0.5 * GT_gamma.shape[1])] )
-    GT_gamma_sample = GT_gamma[sample].cpu().detach().numpy()
     plt.figure()
-    plt.plot(pred_gamma_sample,label='Predicted gamma of predicted geo')
-    plt.plot(GT_gamma_sample,label='GT gamma of GT geo')
-    plt.plot(np.ones(20) * 0.5 * GT_gamma.shape[1], np.arange(-1, 1, 0.1), 'k--')
-    plt.title(f'Gamma, {prnt} loss, sample {args.sample}')
-    print(f'abs error mag: {np.mean(np.abs(pred_gamma_sample[:int(0.5 * GT_gamma.shape[1])] - GT_gamma_sample[:int(0.5 * GT_gamma.shape[1])]))}')
-    print(f'abs error phase: {np.mean(np.abs(pred_gamma_sample[int(0.5 * GT_gamma.shape[1]):] - GT_gamma_sample[int(0.5 * GT_gamma.shape[1]):]))}')
-    plt.legend()
+    plt.imshow(pred_radiation[sample, 2, :, :].cpu().detach().numpy())
+    plt.title(f'Predicted radiation pattern phase, {prnt} loss, sample {args.sample}')
+    plt.colorbar()
+    plt.figure()
+    plt.imshow(GT_radiation[sample, 2, :, :].cpu().detach().numpy())
+    plt.title(f'Ground truth radiation pattern phase, sample {args.sample}')
+    plt.colorbar()
+    plt.figure()
+    plt.imshow(pred_radiation[sample, 0, :, :].cpu().detach().numpy())
+    plt.title(f'Predicted radiation pattern magnitude, {prnt} loss, sample {args.sample}')
+    plt.colorbar()
+    plt.figure()
+    plt.imshow(GT_radiation[sample, 0, :, :].cpu().detach().numpy())
+    plt.title(f'Ground truth radiation pattern magnitude, sample {args.sample}')
+    plt.colorbar()
     plt.show()
 
 if __name__ == '__main__':

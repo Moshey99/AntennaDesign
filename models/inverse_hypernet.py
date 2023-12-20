@@ -220,7 +220,7 @@ class inverse_forward_concat(nn.Module):
     def forward(self,input):
         geometry = self.inverse_module(input)
         gamma,radiation = self.forward_module(geometry)
-        return gamma,radiation
+        return gamma,radiation,geometry
 
 
 

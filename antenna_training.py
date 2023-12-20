@@ -11,23 +11,24 @@ import pickle
 from losses import *
 def arg_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path', type=str, default=r'../AntennaDesign_data/data_dB.npz')
-    parser.add_argument('--forward_model_path_gamma', type=str, default=r'checkpoints/forward_Gamma_baseline.pth')
-    parser.add_argument('--forward_model_path_radiation', type=str, default=r'checkpoints/forward_radiation_changedhyperparams2.pth')
+    parser.add_argument('--data_path', type=str, default=r'../AntennaDesign_data/newdata_dB.npz')
+    parser.add_argument('--forward_model_path_gamma', type=str, default=r'checkpoints/forward_gamma_smoothness_0.001_0.0001.pth')
+    parser.add_argument('--forward_model_path_radiation', type=str, default=r'checkpoints/forward_radiation_huberloss.pth')
     parser.add_argument('--batch_size', type=int, default=20)
-    parser.add_argument('--lr', type=float, default=1e-3, help='initial learning rate')
-    parser.add_argument('--epochs', type=int, default=290)
-    parser.add_argument('--gamma_schedule', type=float, default=0.9, help='gamma decay rate')
-    parser.add_argument('--step_size', type=int, default=12, help='step size for gamma decay')
+    parser.add_argument('--lr', type=float, default=2e-4, help='initial learning rate')
+    parser.add_argument('--epochs', type=int, default=120)
+    parser.add_argument('--gamma_schedule', type=float, default=0.95, help='gamma decay rate')
+    parser.add_argument('--step_size', type=int, default=9, help='step size for gamma decay')
     parser.add_argument('--grad_accumulation_step', type=int, default=None, help='gradient accumulation step. Should be None if HyperNet is not used')
-    parser.add_argument('--inv_or_forw', type=str, default='forward_gamma',
+    parser.add_argument('--inv_or_forw', type=str, default='inverse_forward_GammaRad',
     help='architecture name, to parse dataset correctly. options: inverse, forward_gamma, forward_radiation, inverse_forward_gamma, inverse_forward_GammaRad')
     parser.add_argument('--rad_range', type=list, default=[-55,5], help='range of radiation values for scaling')
     parser.add_argument('--GammaRad_lambda', type=float, default=1.0, help='controls the influence of radiation in GammaRad loss')
     parser.add_argument('--rad_phase_factor', type=float, default=1.0, help='controls the influence of radiations phase in GammaRad loss')
-    parser.add_argument('--mag_smooth_weight', type=float, default=1e-4, help='controls the influence of gamma magnitude smoothness')
-    parser.add_argument('--phase_smooth_weight', type=float, default=1e-4, help='controls the influence of gamma phase smoothness')
-    parser.add_argument('--checkpoint_path', type=str, default=r'checkpoints/forward_gamma_smoothness.pth')
+    parser.add_argument('--mag_smooth_weight', type=float, default=1e-3, help='controls the influence of gamma magnitude smoothness')
+    parser.add_argument('--phase_smooth_weight', type=float, default=1e-3, help='controls the influence of gamma phase smoothness')
+    parser.add_argument('--geo_weight', type=float, default=1e-3, help='controls the influence of geometry loss')
+    parser.add_argument('--checkpoint_path', type=str, default=r'checkpoints/inverseforward_bigger_data.pth')
     return parser.parse_args()
 
 
@@ -51,17 +52,19 @@ if __name__ == "__main__":
     stp_size,gamma_schedule = args.step_size,args.gamma_schedule
     inv_or_forw = args.inv_or_forw
     GammaRad_lambda,rad_phase_fac = args.GammaRad_lambda,args.rad_phase_factor
-    path = args.checkpoint_path[:-4]+'_'+str(args.mag_smooth_weight)+'_'+str(args.phase_smooth_weight)+'.pth'
+    path = args.checkpoint_path
+    g_weight = args.geo_weight
     #----------------------
     print('bs=', batch_size, ' step_size=', stp_size)
 
-    # model = inverse_hypernet.inverse_forward_concat(inv_module=inverse_hypernet.small_inverse_radiation_no_hyper(),
-    #                                          forw_module=forward_GammaRad.forward_GammaRad(rad_range=radiation_range),
-    #                                          forward_weights_path_rad=args.forward_model_path_radiation,
-    #                                          forward_weights_path_gamma=args.forward_model_path_gamma)
-    # loss_fn = GammaRad_loss(lamda=GammaRad_lambda,rad_phase_fac=rad_phase_fac)
-    model = baseline_regressor.small_deeper_baseline_forward_model()
-    loss_fn = gamma_loss_dB(mag_smooth_weight=args.mag_smooth_weight,phase_smooth_weight=args.phase_smooth_weight)
+    model = inverse_hypernet.inverse_forward_concat(inv_module=inverse_hypernet.small_inverse_radiation_no_hyper(),
+                                             forw_module=forward_GammaRad.forward_GammaRad(rad_range=radiation_range),
+                                             forward_weights_path_rad=args.forward_model_path_radiation,
+                                             forward_weights_path_gamma=args.forward_model_path_gamma)
+    loss_fn = GammaRad_loss(lamda=GammaRad_lambda,rad_phase_fac=rad_phase_fac,geo_weight=g_weight)
+    # model = forward_radiation.Radiation_Generator(radiation_range)
+    # loss_fn = radiation_loss_dB(mag_loss='huber',rad_phase_factor=rad_phase_fac)
+    #loss_fn = gamma_loss_dB(mag_smooth_weight=args.mag_smooth_weight,phase_smooth_weight=args.phase_smooth_weight)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rates)
     train_loader = create_dataloader(train_gamma, train_radiation, train_params_scaled, batch_size, device,inv_or_forw)

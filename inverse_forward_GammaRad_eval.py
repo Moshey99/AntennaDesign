@@ -9,12 +9,12 @@ import scipy.io as sio
 
 def arg_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path', type=str, default=r'../AntennaDesign_data/data_dB.npz')
-    parser.add_argument('--model_path', type=str, default='checkpoints/forward_gamma_smoothness_0.001_0.0.pth')
-    parser.add_argument('--inv_or_forw', type=str, default='forward_gamma',
+    parser.add_argument('--data_path', type=str, default=r'../AntennaDesign_data/newdata_dB.npz')
+    parser.add_argument('--model_path', type=str, default='checkpoints/inverseforward_bigger_data.pth')
+    parser.add_argument('--inv_or_forw', type=str, default='inverse_forward_GammaRad',
     help='architecture name, to parse dataset correctly. options: inverse, forward_gamma, forward_radiation, inverse_forward_gamma, inverse_forward_GammaRad')
     parser.add_argument('--rad_range', type=list, default=[-55,5], help='range of radiation values [dB] for scaling')
-    parser.add_argument('--sample', type=int, default=444, help='sample to plot its output, from test set')
+    parser.add_argument('--sample', type=int, default=180, help='sample to plot its output, from test set')
     parser.add_argument('--compare_forward', type=bool, default=False, help='compare forward output of predicted geo to cst file')
 
     return parser.parse_args()
@@ -62,6 +62,7 @@ def main():
     batch_size = val_params_scaled.shape[0]
     test_loader = create_dataloader(val_gamma, val_radiation,val_params_scaled, batch_size, device, inv_or_forw)
     predicted_spectrums,gt_spectrums = trainer.evaluate_model(model, loss_fn, test_loader, 'test', inv_or_forw, return_output=True)
+    predicted_spectrums = predicted_spectrums[0],predicted_spectrums[1]
     test_loader = create_dataloader(val_gamma, val_radiation, val_params_scaled, batch_size, device, 'inverse')
     predicted_geo, gt_geo = trainer.evaluate_model(model.inverse_module,loss_fn,test_loader,'test','inverse',return_output=True)
     #---

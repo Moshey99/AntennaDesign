@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 import numpy as np
+import pytorch_msssim
 class multiloss(nn.Module):
     def __init__(self, objective_num,losses_fns):
         super(multiloss, self).__init__()
@@ -95,10 +96,13 @@ class gamma_loss_dB(nn.Module):
         return loss+smooth_loss_mag+smooth_loss_phase
 
 class radiation_loss_dB(nn.Module):
-    def __init__(self,rad_phase_factor=1.0):
+    def __init__(self,mag_loss='huber',rad_phase_factor=1):
         super(radiation_loss_dB,self).__init__()
         self.phase_loss = CircularLoss()
-        self.dB_magnitude_loss = nn.HuberLoss()
+        if mag_loss == 'combined':
+            self.dB_magnitude_loss = self.huber_msssim_combined_mag_loss()
+        elif mag_loss == 'huber':
+            self.dB_magnitude_loss = nn.HuberLoss()
         self.rad_phase_factor = rad_phase_factor
     def forward(self,pred,target):
         pred_magnitude = pred[:,:pred.shape[1]//2] # expecting pred in dB
@@ -107,20 +111,36 @@ class radiation_loss_dB(nn.Module):
         target_phase = target[:,target.shape[1]//2:]
         loss = self.dB_magnitude_loss(pred_magnitude,target_magnitude) + self.rad_phase_factor*self.phase_loss(pred_phase,target_phase)
         return loss
+    class huber_msssim_combined_mag_loss(nn.Module):
+        def __init__(self):
+            super(radiation_loss_dB.huber_msssim_combined_mag_loss,self).__init__()
+            self.huber_loss = nn.HuberLoss()
+            self.msssim_loss = pytorch_msssim.MSSSIM()
+        def forward(self,pred,target):
+            huber_loss = self.huber_loss(pred,target)
+            msssim_loss = self.msssim_loss(pred,target)
+            return 0.85*huber_loss + 0.15*msssim_loss
+
+
+
+
 class GammaRad_loss(nn.Module):
-    def __init__(self,gamma_loss_fn=None,radiation_loss_fn=None,lamda=1.0,rad_phase_fac=1.0):
+    def __init__(self,gamma_loss_fn=None,radiation_loss_fn=None,lamda=1.0,rad_phase_fac=1.0,geo_weight=1e-4):
         super(GammaRad_loss,self).__init__()
         if gamma_loss_fn is None:
             self.gamma_loss_fn = gamma_loss_dB()
         if radiation_loss_fn is None:
-            self.radiation_loss_fn = radiation_loss_dB(rad_phase_fac)
+            self.radiation_loss_fn = radiation_loss_dB(mag_loss='huber',rad_phase_factor=rad_phase_fac)
         self.lamda = lamda
+        self.geo_weight = geo_weight
     def forward(self,pred,target):
-        gamma_pred,radiation_pred = pred
+        gamma_pred,radiation_pred,geo_pred = pred
         gamma_target,radiation_target = target
         gamma_loss = self.gamma_loss_fn(gamma_pred,gamma_target)
         radiation_loss = self.radiation_loss_fn(radiation_pred,radiation_target)
-        loss = gamma_loss + self.lamda*radiation_loss
+        loss = gamma_loss + self.lamda*radiation_loss+self.geometry_loss(geo_pred)
         return loss
+    def geometry_loss(self,geo):
+        return self.geo_weight*torch.mean(geo)
 
 
